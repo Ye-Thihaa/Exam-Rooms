@@ -1,73 +1,70 @@
-# Welcome to your Lovable project
+🎓 Exam Room Generator
 
-## Project info
+Automated Seating Plan & Invigilator Assignment System
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+📌 Overview
 
-## How can I edit this code?
+The Exam Room Generator automates the creation of exam seating plans and teacher (invigilator) assignments.
+It ensures fair seat distribution, avoids subject conflicts, and reduces manual errors—making exam management faster, accurate, and reliable.
 
-There are several ways of editing your application.
+✨ Features
 
-**Use Lovable**
+🪑 Automatic seating plan generation
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+🏫 Supports multiple exam rooms and capacities
 
-Changes made via Lovable will be committed automatically to this repo.
+🔄 Prevents same-semester / same-subject side-by-side seating
 
-**Use your preferred IDE**
+👨‍🏫 Automatic invigilator assignment
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+🚫 Avoids teacher–subject conflicts
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+⚖️ Balanced teacher distribution
 
-Follow these steps:
+🛠️ Tech Stack (Example)
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+Update this section based on your actual implementation
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+Frontend: React + ShadCn
 
-# Step 3: Install the necessary dependencies.
-npm i
+Backend: Supbabase
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+Database: Supbabase
 
-**Edit a file directly in GitHub**
+Tools: Git, GitHub
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+🔄 System Flowchart
+flowchart TD
+A[Start] --> B[Input Student Data]
+B --> C[Input Exam Room Details]
+C --> D[Input Teacher Data]
+D --> E[Validate Constraints]
+E -->|Valid| F[Generate Seating Plan]
+E -->|Invalid| B
+F --> G[Assign Invigilators]
+G --> H[Conflict Check]
+H -->|No Conflict| I[Generate Final Output]
+H -->|Conflict Found| G
+I --> J[End]
 
-**Use GitHub Codespaces**
+🧠 How It Works
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+Collects student, room, and teacher information
 
-## What technologies are used for this project?
+Applies seating and invigilation rules
 
-This project is built with:
+Generates a conflict-free seating plan
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+Assigns suitable teachers to each room
 
-## How can I deploy this project?
+Produces a final exam arrangement
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+🎯 Benefits
 
-## Can I connect a custom domain to my Lovable project?
+⏱️ Saves time and manual effort
 
-Yes, you can!
+❌ Eliminates human errors
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+🔍 Transparent and fair allocation
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+📊 Suitable for large-scale examinations
