@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import DashboardLayout from "@/components/layouts/DashboardLayout";
 import PageHeader from "@/components/shared/PageHeader";
 import StatCard from "@/components/shared/StatCard";
-import { mockExams } from "@/data/mockData";
 import {
   GraduationCap,
   BookOpen,
@@ -22,22 +21,17 @@ import {
   getTotalRoomCount,
   getAvailableRoomCount,
 } from "@/services/Roomqueries";
+import { examQueries, Exam } from "@/services/examQueries";
 
 const ExamOfficerDashboard: React.FC = () => {
   const [totalStudents, setTotalStudents] = useState<number>(0);
   const [recentStudents, setRecentStudents] = useState<Student[]>([]);
   const [totalRooms, setTotalRooms] = useState<number>(0);
   const [availableRooms, setAvailableRooms] = useState<number>(0);
+  const [upcomingExams, setUpcomingExams] = useState<Exam[]>([]);
+  const [completedExams, setCompletedExams] = useState<number>(0);
+  const [totalScheduledExams, setTotalScheduledExams] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
-
-  const upcomingExams = mockExams
-    .filter((e) => e.status === "scheduled")
-    .slice(0, 4);
-
-  // Calculate completed exams from mock data (for now)
-  const completedExams = mockExams.filter(
-    (e) => e.status === "completed",
-  ).length;
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -45,18 +39,29 @@ const ExamOfficerDashboard: React.FC = () => {
         setLoading(true);
 
         // Fetch all data in parallel
-        const [studentCount, students, roomCount, availableRoomCount] =
-          await Promise.all([
-            getTotalStudentCount(),
-            getRecentStudents(6),
-            getTotalRoomCount(),
-            getAvailableRoomCount(),
-          ]);
+        const [
+          studentCount,
+          students,
+          roomCount,
+          availableRoomCount,
+          upcoming,
+          past,
+        ] = await Promise.all([
+          getTotalStudentCount(),
+          getRecentStudents(6),
+          getTotalRoomCount(),
+          getAvailableRoomCount(),
+          examQueries.getUpcoming(),
+          examQueries.getPast(),
+        ]);
 
         setTotalStudents(studentCount);
         setRecentStudents(students);
         setTotalRooms(roomCount);
         setAvailableRooms(availableRoomCount);
+        setUpcomingExams(upcoming.slice(0, 4)); // Show only 4 upcoming exams
+        setTotalScheduledExams(upcoming.length);
+        setCompletedExams(past.length);
       } catch (error) {
         console.error("Error fetching dashboard data:", error);
       } finally {
@@ -66,6 +71,26 @@ const ExamOfficerDashboard: React.FC = () => {
 
     fetchDashboardData();
   }, []);
+
+  // Format date for display
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  // Format time for display
+  const formatTime = (timeString: string) => {
+    // timeString is in HH:MM:SS format
+    const [hours, minutes] = timeString.split(":");
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? "PM" : "AM";
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${minutes} ${ampm}`;
+  };
 
   return (
     <DashboardLayout>
@@ -93,7 +118,7 @@ const ExamOfficerDashboard: React.FC = () => {
         />
         <StatCard
           title="Scheduled Exams"
-          value={loading ? "..." : upcomingExams.length}
+          value={loading ? "..." : totalScheduledExams}
           subtitle="Pending examination"
           icon={BookOpen}
           variant="success"
@@ -107,7 +132,7 @@ const ExamOfficerDashboard: React.FC = () => {
         />
         <StatCard
           title="Completed Exams"
-          value={completedExams}
+          value={loading ? "..." : completedExams}
           subtitle="This semester"
           icon={ClipboardList}
           variant="default"
@@ -172,36 +197,60 @@ const ExamOfficerDashboard: React.FC = () => {
             <h3 className="text-lg font-semibold text-foreground">
               Upcoming Exams
             </h3>
-            <Link to="/exam-officer/seating">
+            <Link to="/exam-officer/exams">
               <Button variant="ghost" size="sm" className="text-primary">
-                Manage <ArrowRight className="ml-1 h-4 w-4" />
+                View All <ArrowRight className="ml-1 h-4 w-4" />
               </Button>
             </Link>
           </div>
           <div className="space-y-3">
-            {upcomingExams.length === 0 ? (
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-pulse text-muted-foreground">
+                  Loading exams...
+                </div>
+              </div>
+            ) : upcomingExams.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8">
                 <BookOpen className="h-12 w-12 text-muted-foreground/50 mb-2" />
                 <p className="text-muted-foreground">No upcoming exams</p>
+                <p className="text-sm text-muted-foreground/70 mt-1">
+                  Create an exam to get started
+                </p>
               </div>
             ) : (
               upcomingExams.map((exam) => (
                 <div
-                  key={exam.id}
+                  key={exam.exam_id}
                   className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
                 >
-                  <div>
-                    <p className="font-medium text-foreground">{exam.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {exam.code} • {exam.totalStudents} students
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-foreground truncate">
+                      {exam.exam_name}
                     </p>
+                    <p className="text-sm text-muted-foreground">
+                      {exam.subject_code}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                        {exam.year_level}
+                      </span>
+                      {exam.specialization && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                          {exam.specialization}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-medium text-foreground">
-                      {exam.date}
+                  <div className="text-right ml-4">
+                    <p className="text-sm font-medium text-foreground whitespace-nowrap">
+                      {formatDate(exam.exam_date)}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {exam.startTime}
+                      {formatTime(exam.start_time)}
+                    </p>
+                    <p className="text-xs text-muted-foreground/70">
+                      {exam.day_of_week}
                     </p>
                   </div>
                 </div>

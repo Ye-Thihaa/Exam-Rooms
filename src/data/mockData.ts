@@ -1,4 +1,3 @@
-// Mock Users for Authentication
 export interface User {
   id: string;
   email: string;
