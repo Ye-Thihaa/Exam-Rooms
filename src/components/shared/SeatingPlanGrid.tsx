@@ -1,6 +1,10 @@
-import React from 'react';
-import { SeatAssignment } from '@/data/mockData';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import React from "react";
+import { SeatAssignment } from "@/data/mockData";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface SeatingPlanGridProps {
   seats: SeatAssignment[];
@@ -10,6 +14,7 @@ interface SeatingPlanGridProps {
   showLegend?: boolean;
   onSeatClick?: (seat: SeatAssignment) => void;
   selectedSeat?: string;
+  seatPrefix?: string; // ✅ NEW: default TNT
 }
 
 const SeatingPlanGrid: React.FC<SeatingPlanGridProps> = ({
@@ -20,14 +25,17 @@ const SeatingPlanGrid: React.FC<SeatingPlanGridProps> = ({
   showLegend = true,
   onSeatClick,
   selectedSeat,
+  seatPrefix = "TNT",
 }) => {
-  const rowLabels = 'ABCDEFGHIJKLMNOPQRST'.split('').slice(0, rows);
+  const rowLabels = "ABCDEFGHIJKLMNOPQRST".split("").slice(0, rows);
 
   return (
     <div className="space-y-4">
       {/* Room header */}
       <div className="text-center p-3 bg-primary/10 rounded-lg border-2 border-dashed border-primary/30">
-        <span className="text-sm font-medium text-primary">FRONT - {roomName}</span>
+        <span className="text-sm font-medium text-primary">
+          FRONT - {roomName}
+        </span>
       </div>
 
       {/* Seating grid */}
@@ -55,8 +63,11 @@ const SeatingPlanGrid: React.FC<SeatingPlanGridProps> = ({
 
               {/* Seats in this row */}
               {Array.from({ length: seatsPerRow }, (_, colIndex) => {
-                const seatNumber = `${rowLabel}-${(colIndex + 1).toString().padStart(2, '0')}`;
-                const seat = seats.find(s => s.seatNumber === seatNumber);
+                // ✅ TNT seat numbering
+                const seatIndex = rowIndex * seatsPerRow + colIndex + 1;
+                const seatNumber = `${seatPrefix}-${seatIndex}`;
+
+                const seat = seats.find((s) => s.seatNumber === seatNumber);
                 const isSelected = selectedSeat === seatNumber;
 
                 return (
@@ -66,16 +77,19 @@ const SeatingPlanGrid: React.FC<SeatingPlanGridProps> = ({
                         className={`
                           w-12 h-12 rounded-lg flex flex-col items-center justify-center 
                           text-xs font-medium transition-all duration-200
-                          ${seat?.isOccupied 
-                            ? 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90' 
-                            : 'bg-secondary text-secondary-foreground border-2 border-dashed border-primary/20 hover:border-primary/40'
+                          ${
+                            seat?.isOccupied
+                              ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+                              : "bg-secondary text-secondary-foreground border-2 border-dashed border-primary/20 hover:border-primary/40"
                           }
-                          ${isSelected ? 'ring-2 ring-ring ring-offset-2' : ''}
-                          ${onSeatClick ? 'cursor-pointer' : 'cursor-default'}
+                          ${isSelected ? "ring-2 ring-ring ring-offset-2" : ""}
+                          ${onSeatClick ? "cursor-pointer" : "cursor-default"}
                         `}
                         onClick={() => seat && onSeatClick?.(seat)}
                       >
-                        <span className="text-[10px] opacity-70">{seatNumber}</span>
+                        <span className="text-[10px] opacity-70">
+                          {seatNumber}
+                        </span>
                         {seat?.isOccupied && (
                           <span className="text-[8px] mt-0.5 truncate max-w-[40px]">
                             {seat.studentId}
@@ -83,13 +97,18 @@ const SeatingPlanGrid: React.FC<SeatingPlanGridProps> = ({
                         )}
                       </button>
                     </TooltipTrigger>
+
                     <TooltipContent>
                       <div className="text-sm">
                         <p className="font-medium">Seat {seatNumber}</p>
                         {seat?.isOccupied ? (
                           <>
-                            <p className="text-muted-foreground">{seat.studentName}</p>
-                            <p className="text-xs text-muted-foreground">{seat.studentId}</p>
+                            <p className="text-muted-foreground">
+                              {seat.studentName}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {seat.studentId}
+                            </p>
                           </>
                         ) : (
                           <p className="text-muted-foreground">Available</p>
