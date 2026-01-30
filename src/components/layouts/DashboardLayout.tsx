@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
+import React, { useState } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard,
   Users,
@@ -17,8 +17,8 @@ import {
   FileText,
   Settings,
   ChevronDown,
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface NavItem {
   icon: React.ElementType;
@@ -28,39 +28,56 @@ interface NavItem {
 
 const roleNavItems: Record<string, NavItem[]> = {
   admin: [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/admin' },
-    { icon: Users, label: 'User Management', path: '/admin/users' },
-    { icon: Shield, label: 'Role Assignment', path: '/admin/roles' },
-    { icon: DoorOpen, label: 'Room Management', path: '/admin/rooms' },
-    { icon: BookOpen, label: 'Exams Overview', path: '/admin/exams' },
+    { icon: LayoutDashboard, label: "Dashboard", path: "/admin" },
+    { icon: Users, label: "User Management", path: "/admin/users" },
+    { icon: Shield, label: "Role Assignment", path: "/admin/roles" },
+    { icon: DoorOpen, label: "Room Management", path: "/admin/rooms" },
+    { icon: BookOpen, label: "Exams Overview", path: "/admin/exams" },
   ],
   exam_officer: [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/exam-officer' },
-    { icon: GraduationCap, label: 'Student Records', path: '/exam-officer/students' },
-    { icon: FileText, label: 'Create Exam', path: '/exam-officer/create-exam' },
-    { icon: DoorOpen, label: 'Room Capacity', path: '/exam-officer/rooms' },
-    { icon: ClipboardList, label: 'Generate Seating', path: '/exam-officer/seating' },
+    { icon: LayoutDashboard, label: "Dashboard", path: "/exam-officer" },
+    {
+      icon: GraduationCap,
+      label: "Student Records",
+      path: "/exam-officer/students",
+    },
+    { icon: FileText, label: "Create Exam", path: "/exam-officer/create-exam" },
+    { icon: DoorOpen, label: "Room Capacity", path: "/exam-officer/rooms" },
+    {
+      icon: Calendar,
+      label: "Room Assignment",
+      path: "/exam-officer/room-assignment",
+    },
+    {
+      icon: ClipboardList,
+      label: "Generate Seating",
+      path: "/exam-officer/seating",
+    },
   ],
   invigilator: [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/invigilator' },
-    { icon: BookOpen, label: 'Assigned Exams', path: '/invigilator/exams' },
-    { icon: DoorOpen, label: 'Assigned Rooms', path: '/invigilator/rooms' },
-    { icon: ClipboardList, label: 'Seating Plans', path: '/invigilator/seating' },
-    { icon: Calendar, label: 'Schedule', path: '/invigilator/schedule' },
+    { icon: LayoutDashboard, label: "Dashboard", path: "/invigilator" },
+    { icon: BookOpen, label: "Assigned Exams", path: "/invigilator/exams" },
+    { icon: DoorOpen, label: "Assigned Rooms", path: "/invigilator/rooms" },
+    {
+      icon: ClipboardList,
+      label: "Seating Plans",
+      path: "/invigilator/seating",
+    },
+    { icon: Calendar, label: "Schedule", path: "/invigilator/schedule" },
   ],
   student: [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/student' },
-    { icon: Calendar, label: 'Exam Timetable', path: '/student/timetable' },
-    { icon: DoorOpen, label: 'My Seat Info', path: '/student/seat' },
-    { icon: BookOpen, label: 'Exam Details', path: '/student/exams' },
+    { icon: LayoutDashboard, label: "Dashboard", path: "/student" },
+    { icon: Calendar, label: "Exam Timetable", path: "/student/timetable" },
+    { icon: DoorOpen, label: "My Seat Info", path: "/student/seat" },
+    { icon: BookOpen, label: "Exam Details", path: "/student/exams" },
   ],
 };
 
 const roleLabels: Record<string, string> = {
-  admin: 'Administrator',
-  exam_officer: 'Exam Officer',
-  invigilator: 'Invigilator',
-  student: 'Student',
+  admin: "Administrator",
+  exam_officer: "Exam Officer",
+  invigilator: "Invigilator",
+  student: "Student",
 };
 
 interface DashboardLayoutProps {
@@ -79,7 +96,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    navigate("/login");
   };
 
   return (
@@ -99,9 +116,9 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
           bg-sidebar text-sidebar-foreground
           transform transition-transform duration-200 ease-in-out
           lg:transform-none
-          ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+          ${isSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
         `}
-        style={{ background: 'var(--gradient-sidebar)' }}
+        style={{ background: "var(--gradient-sidebar)" }}
       >
         <div className="flex flex-col h-full">
           {/* Logo/Brand */}
@@ -111,8 +128,12 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                 <GraduationCap className="h-6 w-6 text-sidebar-primary-foreground" />
               </div>
               <div>
-                <h1 className="font-bold text-lg text-sidebar-foreground">ExamRoom</h1>
-                <p className="text-xs text-sidebar-foreground/70">University System</p>
+                <h1 className="font-bold text-lg text-sidebar-foreground">
+                  ExamRoom
+                </h1>
+                <p className="text-xs text-sidebar-foreground/70">
+                  University System
+                </p>
               </div>
             </div>
           </div>
@@ -133,9 +154,9 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
               <NavLink
                 key={item.path}
                 to={item.path}
-                end={item.path === `/${user.role}` || item.path === '/admin'}
+                end={item.path === `/${user.role}` || item.path === "/admin"}
                 className={({ isActive }) =>
-                  `nav-item ${isActive ? 'active' : ''}`
+                  `nav-item ${isActive ? "active" : ""}`
                 }
                 onClick={() => setIsSidebarOpen(false)}
               >
@@ -203,7 +224,9 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
               <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                 <User className="h-4 w-4 text-primary" />
               </div>
-              <span className="hidden sm:block text-sm font-medium">{user.name}</span>
+              <span className="hidden sm:block text-sm font-medium">
+                {user.name}
+              </span>
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
             </button>
 
@@ -216,7 +239,9 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                 <div className="absolute right-0 mt-2 w-56 bg-card rounded-lg shadow-lg border border-border z-50 py-2">
                   <div className="px-4 py-2 border-b border-border">
                     <p className="text-sm font-medium">{user.name}</p>
-                    <p className="text-xs text-muted-foreground">{user.email}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {user.email}
+                    </p>
                   </div>
                   <button
                     className="w-full px-4 py-2 text-left text-sm hover:bg-muted flex items-center gap-2"
@@ -232,9 +257,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 p-4 lg:p-6 overflow-auto">
-          {children}
-        </main>
+        <main className="flex-1 p-4 lg:p-6 overflow-auto">{children}</main>
       </div>
     </div>
   );

@@ -6,6 +6,8 @@ export interface Room {
   capacity: number;
   room_type: string;
   is_available: boolean;
+  rows: number;
+  cols: number;
   id?: number;
 }
 
@@ -66,7 +68,9 @@ export async function getAllRooms(): Promise<(Room & { id: number })[]> {
   try {
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select("room_id, room_number, capacity, room_type, is_available")
+      .select(
+        "room_id, room_number, capacity, room_type, is_available, rows, cols",
+      )
       .order("room_number", { ascending: true });
 
     if (error) {
@@ -88,7 +92,9 @@ export async function getAvailableRooms(): Promise<(Room & { id: number })[]> {
   try {
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select("room_id, room_number, capacity, room_type, is_available")
+      .select(
+        "room_id, room_number, capacity, room_type, is_available, rows, cols",
+      )
       .eq("is_available", true)
       .order("room_number", { ascending: true });
 
@@ -114,7 +120,9 @@ export async function getRoomsByType(
   try {
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select("room_id, room_number, capacity, room_type, is_available")
+      .select(
+        "room_id, room_number, capacity, room_type, is_available, rows, cols",
+      )
       .eq("room_type", roomType)
       .order("room_number", { ascending: true });
 
@@ -140,7 +148,9 @@ export async function getRoomById(
   try {
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select("room_id, room_number, capacity, room_type, is_available")
+      .select(
+        "room_id, room_number, capacity, room_type, is_available, rows, cols",
+      )
       .eq("room_id", roomId)
       .single();
 
