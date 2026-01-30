@@ -23,6 +23,7 @@ import ExamOfficerDashboard from "./pages/exam-officer/ExamOfficerDashboard";
 import StudentRecords from "./pages/exam-officer/StudentRecords";
 import CreateExam from "./pages/exam-officer/CreateExam";
 import RoomCapacity from "./pages/exam-officer/RoomCapacity";
+import RoomAssignment from "./pages/admin/RoomAssignment";
 import SeatingGenerator from "./pages/exam-officer/SeatingGenerator";
 
 // Invigilator Pages
@@ -127,6 +128,14 @@ const App = () => (
               element={
                 <ProtectedRoute allowedRoles={["exam_officer"]}>
                   <RoomCapacity />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/exam-officer/room-assignment"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <RoomAssignment />
                 </ProtectedRoute>
               }
             />

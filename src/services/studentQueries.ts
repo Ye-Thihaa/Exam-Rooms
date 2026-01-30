@@ -8,7 +8,6 @@ export interface Student {
   retake: boolean;
   major?: string;
   sem?: number;
-  // Add id field for React key prop (maps to student_id)
   id?: number;
 }
 

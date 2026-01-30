@@ -5,7 +5,7 @@ import DataTable from "@/components/shared/DataTable";
 import { Button } from "@/components/ui/button";
 import { Eye, Calendar, Clock, Users } from "lucide-react";
 
-import { examQueries, Exam } from "@/services/examQueries"; // adjust path
+import { examQueries, Exam } from "@/services/examQueries";
 import {
   examRoomQueries,
   ExamRoomWithDetails,
@@ -15,7 +15,7 @@ type ExamVM = {
   id: number;
   name: string;
   code: string;
-  department: string; // mapped from program (or specialization)
+  department: string;
   date: string;
   startTime: string;
   endTime: string;
