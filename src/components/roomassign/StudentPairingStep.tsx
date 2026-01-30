@@ -1,0 +1,80 @@
+import React from "react";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { RoomPairing, StudentGroup } from "../RoomAssignment";
+import RoomPairingCard from "./RoomPairingCard";
+
+interface StudentPairingStepProps {
+  roomPairings: RoomPairing[];
+  availableOptions: {
+    yearLevels: string[];
+    semesters: string[];
+    programs: string[];
+  };
+  onUpdatePairing: (id: string, field: keyof RoomPairing, value: any) => void;
+  onBack: () => void;
+  onSave: () => void;
+  getAvailableSemestersForYear: (
+    yearLevel: string,
+    allSemesters: string[],
+  ) => string[];
+  getAvailableProgramsForYear: (
+    yearLevel: string,
+    allPrograms: string[],
+  ) => string[];
+  getDefaultGroupValues: (
+    yearLevel: string,
+  ) => Pick<StudentGroup, "sem" | "program">;
+}
+
+const StudentPairingStep: React.FC<StudentPairingStepProps> = ({
+  roomPairings,
+  availableOptions,
+  onUpdatePairing,
+  onBack,
+  onSave,
+  getAvailableSemestersForYear,
+  getAvailableProgramsForYear,
+  getDefaultGroupValues,
+}) => {
+  return (
+    <div className="space-y-6">
+      <Card className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">
+            Room & Student Group Pairing
+          </h3>
+          <Badge variant="outline">
+            {roomPairings.length} room{roomPairings.length !== 1 ? "s" : ""}
+          </Badge>
+        </div>
+
+        <div className="space-y-4">
+          {roomPairings.map((pairing) => (
+            <RoomPairingCard
+              key={pairing.id}
+              pairing={pairing}
+              availableOptions={availableOptions}
+              onUpdate={onUpdatePairing}
+              getAvailableSemestersForYear={getAvailableSemestersForYear}
+              getAvailableProgramsForYear={getAvailableProgramsForYear}
+              getDefaultGroupValues={getDefaultGroupValues}
+            />
+          ))}
+        </div>
+
+        <div className="flex gap-2 mt-6">
+          <Button variant="outline" onClick={onBack} className="flex-1">
+            Back
+          </Button>
+          <Button onClick={onSave} className="flex-1">
+            Save Assignment (Check Console)
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+export default StudentPairingStep;
