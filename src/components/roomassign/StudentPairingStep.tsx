@@ -2,7 +2,11 @@ import React from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { RoomPairing, StudentGroup } from "../RoomAssignment";
+import { Loader2 } from "lucide-react";
+import {
+  RoomPairing,
+  StudentGroup,
+} from "../../pages/exam-officer/RoomAssignment";
 import RoomPairingCard from "./RoomPairingCard";
 
 interface StudentPairingStepProps {
@@ -15,6 +19,7 @@ interface StudentPairingStepProps {
   onUpdatePairing: (id: string, field: keyof RoomPairing, value: any) => void;
   onBack: () => void;
   onSave: () => void;
+  isSaving: boolean; // Add this
   getAvailableSemestersForYear: (
     yearLevel: string,
     allSemesters: string[],
@@ -34,6 +39,7 @@ const StudentPairingStep: React.FC<StudentPairingStepProps> = ({
   onUpdatePairing,
   onBack,
   onSave,
+  isSaving, // Add this
   getAvailableSemestersForYear,
   getAvailableProgramsForYear,
   getDefaultGroupValues,
@@ -65,11 +71,23 @@ const StudentPairingStep: React.FC<StudentPairingStepProps> = ({
         </div>
 
         <div className="flex gap-2 mt-6">
-          <Button variant="outline" onClick={onBack} className="flex-1">
+          <Button
+            variant="outline"
+            onClick={onBack}
+            className="flex-1"
+            disabled={isSaving}
+          >
             Back
           </Button>
-          <Button onClick={onSave} className="flex-1">
-            Save Assignment (Check Console)
+          <Button onClick={onSave} className="flex-1" disabled={isSaving}>
+            {isSaving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              "Save Assignment"
+            )}
           </Button>
         </div>
       </Card>
