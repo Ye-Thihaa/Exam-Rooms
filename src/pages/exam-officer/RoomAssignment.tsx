@@ -9,12 +9,16 @@ import {
   getTotalStudentCount,
   getStudentsByYearLevel,
 } from "@/services/studentQueries";
-import { CheckCircle2, ArrowRight } from "lucide-react";
+import { CheckCircle2, ArrowRight, Save, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import StudentStatisticsCard from "../../components/roomassign/StudentStatisticsCard";
 import ProgressSteps from "../../components/roomassign/ProgressSteps";
 import RoomSelectionStep from "../../components/roomassign/RoomSelectionStep";
 import StudentPairingStep from "../../components/roomassign/StudentPairingStep";
+import {
+  saveExamRoomAssignments,
+  ExamRoomInsert,
+} from "@/services/examroomQueries";
 
 // Types
 interface StudentStats {
@@ -272,14 +276,81 @@ const logAssignmentData = (pairings: RoomPairing[]) => {
     );
     console.log("   Total:", totalStudents, "/ 36");
   });
+};
 
-  toast.success("Assignment data logged to console!");
+/**
+ * Validate room pairings before saving
+ */
+const validatePairings = (
+  pairings: RoomPairing[],
+): { valid: boolean; errors: string[] } => {
+  const errors: string[] = [];
+
+  pairings.forEach((pairing, index) => {
+    const roomLabel = `Room ${pairing.room.room_number}`;
+
+    // Check if primary group is filled
+    if (
+      !pairing.group_primary.year_level ||
+      !pairing.group_primary.sem ||
+      !pairing.group_primary.program
+    ) {
+      errors.push(`${roomLabel}: Primary group is incomplete`);
+    }
+
+    // Check if secondary group is filled
+    if (
+      !pairing.group_secondary.year_level ||
+      !pairing.group_secondary.sem ||
+      !pairing.group_secondary.program
+    ) {
+      errors.push(`${roomLabel}: Secondary group is incomplete`);
+    }
+
+    // Check total capacity
+    const totalStudents = pairing.students_primary + pairing.students_secondary;
+    if (totalStudents > MAX_ROOM_CAPACITY) {
+      errors.push(
+        `${roomLabel}: Total students (${totalStudents}) exceeds capacity (${MAX_ROOM_CAPACITY})`,
+      );
+    }
+
+    if (totalStudents === 0) {
+      errors.push(`${roomLabel}: No students assigned`);
+    }
+  });
+
+  return { valid: errors.length === 0, errors };
+};
+
+/**
+ * Convert room pairings to database format
+ */
+const convertPairingsToExamRooms = (
+  pairings: RoomPairing[],
+  examId: number,
+): ExamRoomInsert[] => {
+  return pairings.map((pairing) => ({
+    exam_id: examId,
+    room_id: pairing.room.room_id,
+    assigned_capacity: pairing.students_primary + pairing.students_secondary,
+    year_level_primary: pairing.group_primary.year_level,
+    sem_primary: pairing.group_primary.sem,
+    program_primary: pairing.group_primary.program,
+    students_primary: pairing.students_primary,
+    year_level_secondary: pairing.group_secondary.year_level,
+    sem_secondary: pairing.group_secondary.sem,
+    program_secondary: pairing.group_secondary.program,
+    students_secondary: pairing.students_secondary,
+  }));
 };
 
 // Main Component
 const RoomAssignment: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
   const [roomPairings, setRoomPairings] = useState<RoomPairing[]>([]);
+  const [selectedExamId, setSelectedExamId] = useState<number>(1); // You should fetch/select this
+  const [isSaving, setIsSaving] = useState(false);
 
   const { availableRooms, selectedRooms, toggleRoomSelection } = useRooms();
   const { studentStats, loading: statsLoading } = useStudentStats();
@@ -307,8 +378,50 @@ const RoomAssignment: React.FC = () => {
     );
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    // Validate pairings
+    const validation = validatePairings(roomPairings);
+
+    if (!validation.valid) {
+      toast.error("Validation failed");
+      validation.errors.forEach((error) => {
+        console.error(error);
+        toast.error(error);
+      });
+      return;
+    }
+
+    // Log assignment data
     logAssignmentData(roomPairings);
+
+    // Save to database
+    setIsSaving(true);
+    try {
+      const examRooms = convertPairingsToExamRooms(
+        roomPairings,
+        selectedExamId,
+      );
+      const result = await saveExamRoomAssignments(selectedExamId, examRooms);
+
+      if (result.success) {
+        toast.success(
+          `Successfully saved ${roomPairings.length} room assignments!`,
+        );
+        console.log("Saved data:", result.data);
+
+        // Optionally reset or navigate away
+        // setCurrentStep(1);
+        // setRoomPairings([]);
+      } else {
+        toast.error("Failed to save room assignments");
+        console.error("Save error:", result.error);
+      }
+    } catch (error) {
+      console.error("Exception saving room assignments:", error);
+      toast.error("An error occurred while saving");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -339,6 +452,7 @@ const RoomAssignment: React.FC = () => {
           onUpdatePairing={handleUpdatePairing}
           onBack={() => setCurrentStep(1)}
           onSave={handleSave}
+          isSaving={isSaving}
           getAvailableSemestersForYear={getAvailableSemestersForYear}
           getAvailableProgramsForYear={getAvailableProgramsForYear}
           getDefaultGroupValues={getDefaultGroupValues}
