@@ -75,8 +75,8 @@ const SeatingPlanGrid: React.FC<SeatingPlanGridProps> = ({
                     <TooltipTrigger asChild>
                       <button
                         className={`
-                          w-12 h-12 rounded-lg flex flex-col items-center justify-center 
-                          text-xs font-medium transition-all duration-200
+                          w-12 h-12 rounded-lg flex items-center justify-center 
+                          text-[9px] font-semibold transition-all duration-200
                           ${
                             seat?.isOccupied
                               ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
@@ -87,13 +87,12 @@ const SeatingPlanGrid: React.FC<SeatingPlanGridProps> = ({
                         `}
                         onClick={() => seat && onSeatClick?.(seat)}
                       >
-                        <span className="text-[10px] opacity-70">
-                          {seatNumber}
-                        </span>
-                        {seat?.isOccupied && (
-                          <span className="text-[8px] mt-0.5 truncate max-w-[40px]">
-                            {seat.studentId}
+                        {seat?.isOccupied && seat?.rollNumber ? (
+                          <span className="truncate px-1">
+                            {seat.rollNumber}
                           </span>
+                        ) : (
+                          <span className="text-[10px] opacity-50">Empty</span>
                         )}
                       </button>
                     </TooltipTrigger>
@@ -103,11 +102,13 @@ const SeatingPlanGrid: React.FC<SeatingPlanGridProps> = ({
                         <p className="font-medium">Seat {seatNumber}</p>
                         {seat?.isOccupied ? (
                           <>
-                            <p className="text-muted-foreground">
-                              {seat.studentName}
-                            </p>
+                            {seat.rollNumber && (
+                              <p className="text-muted-foreground font-medium">
+                                {seat.rollNumber}
+                              </p>
+                            )}
                             <p className="text-xs text-muted-foreground">
-                              {seat.studentId}
+                              {seat.studentGroup}
                             </p>
                           </>
                         ) : (
@@ -123,23 +124,7 @@ const SeatingPlanGrid: React.FC<SeatingPlanGridProps> = ({
         </div>
       </div>
 
-      {/* Legend */}
-      {showLegend && (
-        <div className="flex items-center gap-6 pt-4 border-t border-border">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-primary" />
-            <span className="text-sm text-muted-foreground">Occupied</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-secondary border-2 border-dashed border-primary/30" />
-            <span className="text-sm text-muted-foreground">Available</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-secondary ring-2 ring-ring ring-offset-2" />
-            <span className="text-sm text-muted-foreground">Selected</span>
-          </div>
-        </div>
-      )}
+      {/* Legend - Removed as per requirement */}
     </div>
   );
 };
