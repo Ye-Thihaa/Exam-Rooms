@@ -335,9 +335,11 @@ export interface SeatAssignment {
   seatNumber: string;
   row: string;
   column: number;
+  isOccupied: boolean;
   studentId?: string;
   studentName?: string;
-  isOccupied: boolean;
+  studentGroup?: string;
+  rollNumber?: string;
 }
 
 export const generateSeatingPlan = (
