@@ -61,16 +61,18 @@ const StudentRecords: React.FC = () => {
     fetchStudents();
   }, [activeFilter]);
 
-  // Filter students locally for search
-  const filteredStudents = students.filter(
-    (student) =>
-      student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      student.student_number
-        .toLowerCase()
-        .includes(searchQuery.toLowerCase()) ||
-      (student.major &&
-        student.major.toLowerCase().includes(searchQuery.toLowerCase())),
-  );
+  // Filter students locally for search (include specialization too)
+  const filteredStudents = students.filter((student) => {
+    const q = searchQuery.toLowerCase();
+
+    return (
+      student.name.toLowerCase().includes(q) ||
+      student.student_number.toLowerCase().includes(q) ||
+      (student.major && student.major.toLowerCase().includes(q)) ||
+      (student.specialization &&
+        student.specialization.toLowerCase().includes(q))
+    );
+  });
 
   // Calculate statistics
   const stats = {
@@ -82,20 +84,57 @@ const StudentRecords: React.FC = () => {
     year4: students.filter((s) => s.year_level === 4).length,
   };
 
-  // Calculate major distribution - ALL majors sorted by count
-  const majorStats = students.reduce(
+  // ✅ Major + Specialization distribution
+  const majorSpecStats = students.reduce(
     (acc, student) => {
       const major = student.major || "Undeclared";
-      acc[major] = (acc[major] || 0) + 1;
+      const spec = student.specialization || "N/A";
+      const key = `${major} • ${spec}`;
+      acc[key] = (acc[key] || 0) + 1;
       return acc;
     },
     {} as Record<string, number>,
   );
 
-  // Sort all majors by count (descending)
-  const allMajors = Object.entries(majorStats).sort(([, a], [, b]) => b - a);
+  // Sort by count desc
+  const allMajorSpecs = Object.entries(majorSpecStats).sort(
+    ([, a], [, b]) => b - a,
+  );
+  // Map program names to short codes
+  const PROGRAM_CODE: Record<string, string> = {
+    "Computer Science and Technology": "CST",
+    "Computer Science": "CS",
+    "Computer Technology": "CT",
+  };
 
-  // Export to CSV
+  // Program distribution (CST/CS/CT)
+  const programStats = students.reduce(
+    (acc, s) => {
+      const code = (s.major && PROGRAM_CODE[s.major]) || s.major || "Unknown";
+      acc[code] = (acc[code] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
+
+  const allPrograms = Object.entries(programStats).sort(
+    ([, a], [, b]) => b - a,
+  );
+
+  // Specialization distribution (SE/KE/BIS/HPC/CN/ES/CSEC...)
+  const specializationStats = students.reduce(
+    (acc, s) => {
+      const spec = s.specialization || "N/A";
+      acc[spec] = (acc[spec] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
+
+  const allSpecializations = Object.entries(specializationStats).sort(
+    ([, a], [, b]) => b - a,
+  );
+  // Export to CSV (include specialization)
   const handleExport = () => {
     const headers = [
       "No.",
@@ -104,9 +143,11 @@ const StudentRecords: React.FC = () => {
       "Name",
       "Year Level",
       "Major",
+      "Specialization",
       "Semester",
       "Retake",
     ];
+
     const csvData = filteredStudents.map((s, index) => [
       index + 1,
       s.student_id,
@@ -114,7 +155,8 @@ const StudentRecords: React.FC = () => {
       s.name,
       s.year_level,
       s.major || "",
-      s.sem || "",
+      s.specialization || "",
+      s.sem ?? "",
       s.retake ? "Yes" : "No",
     ]);
 
@@ -183,9 +225,17 @@ const StudentRecords: React.FC = () => {
     },
     {
       key: "major",
-      header: "Major",
+      header: "Program",
       render: (student: StudentWithId) => (
         <span className="text-sm">{student.major || "Undeclared"}</span>
+      ),
+    },
+    // ✅ NEW COLUMN
+    {
+      key: "specialization",
+      header: "Specialization",
+      render: (student: StudentWithId) => (
+        <span className="text-sm">{student.specialization || "N/A"}</span>
       ),
     },
     {
@@ -303,15 +353,15 @@ const StudentRecords: React.FC = () => {
         </div>
       )}
 
-      {/* All Majors Stats */}
+      {/* Program % (CST / CT / CS) */}
       {loading ? (
         <div className="mb-6">
           <div className="mb-4">
             <h3 className="text-lg font-semibold text-foreground">
-              Students by Major
+              Students by Program
             </h3>
             <p className="text-sm text-muted-foreground">
-              Distribution across all programs
+              Percentage distribution (CST / CT / CS)
             </p>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
@@ -324,51 +374,99 @@ const StudentRecords: React.FC = () => {
           </div>
         </div>
       ) : (
-        <div className="mb-6">
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold text-foreground">
-              Students by Major
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              {allMajors.length}{" "}
-              {allMajors.length === 1 ? "program" : "programs"} •{" "}
-              {students.length} total students
-            </p>
-          </div>
-          {allMajors.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {allMajors.map(([major, count]) => (
-                <div
-                  key={major}
-                  className="dashboard-card text-center hover:border-primary/30 transition-all cursor-pointer hover:shadow-sm"
-                >
-                  <p className="text-2xl font-bold text-foreground mb-1">
-                    {count}
-                  </p>
-                  <p
-                    className="text-sm text-muted-foreground truncate px-2"
-                    title={major}
+        <>
+          <div className="mb-6">
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold text-foreground">
+                Students by Program
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                {allPrograms.length} programs • {students.length} total students
+              </p>
+            </div>
+
+            {allPrograms.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {allPrograms.map(([program, count]) => (
+                  <div
+                    key={program}
+                    className="dashboard-card text-center hover:border-primary/30 transition-all cursor-pointer hover:shadow-sm"
+                    title={program}
                   >
-                    {major}
-                  </p>
-                  <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-primary transition-all"
-                      style={{ width: `${(count / students.length) * 100}%` }}
-                    />
+                    <p className="text-2xl font-bold text-foreground mb-1">
+                      {count}
+                    </p>
+                    <p className="text-sm text-muted-foreground truncate px-2">
+                      {program}
+                    </p>
+                    <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all"
+                        style={{ width: `${(count / students.length) * 100}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {((count / students.length) * 100).toFixed(1)}%
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {((count / students.length) * 100).toFixed(1)}%
-                  </p>
-                </div>
-              ))}
+                ))}
+              </div>
+            ) : (
+              <div className="dashboard-card text-center py-8">
+                <p className="text-muted-foreground">
+                  No student data available
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Specialization % (SE/KE/BIS/HPC...) */}
+          <div className="mb-6">
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold text-foreground">
+                Students by Specialization
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                {allSpecializations.length} specializations • {students.length}{" "}
+                total students
+              </p>
             </div>
-          ) : (
-            <div className="dashboard-card text-center py-8">
-              <p className="text-muted-foreground">No student data available</p>
-            </div>
-          )}
-        </div>
+
+            {allSpecializations.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {allSpecializations.map(([spec, count]) => (
+                  <div
+                    key={spec}
+                    className="dashboard-card text-center hover:border-primary/30 transition-all cursor-pointer hover:shadow-sm"
+                    title={spec}
+                  >
+                    <p className="text-2xl font-bold text-foreground mb-1">
+                      {count}
+                    </p>
+                    <p className="text-sm text-muted-foreground truncate px-2">
+                      {spec}
+                    </p>
+                    <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all"
+                        style={{ width: `${(count / students.length) * 100}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {((count / students.length) * 100).toFixed(1)}%
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="dashboard-card text-center py-8">
+                <p className="text-muted-foreground">
+                  No specialization data available
+                </p>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {/* Data Table */}
@@ -381,7 +479,7 @@ const StudentRecords: React.FC = () => {
         <DataTable
           columns={columns}
           data={filteredStudents}
-          searchPlaceholder="Search by name, student number, or major..."
+          searchPlaceholder="Search by name, student number, program, or specialization..."
           onSearch={setSearchQuery}
           searchValue={searchQuery}
           emptyMessage={

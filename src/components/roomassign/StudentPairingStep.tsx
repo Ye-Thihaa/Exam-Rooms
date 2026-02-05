@@ -15,22 +15,28 @@ interface StudentPairingStepProps {
     yearLevels: string[];
     semesters: string[];
     programs: string[];
+    specializations: string[]; // ✅ ADD
   };
   onUpdatePairing: (id: string, field: keyof RoomPairing, value: any) => void;
   onBack: () => void;
   onSave: () => void;
-  isSaving: boolean; // Add this
+  isSaving: boolean;
+
   getAvailableSemestersForYear: (
     yearLevel: string,
     allSemesters: string[],
   ) => string[];
+
   getAvailableProgramsForYear: (
     yearLevel: string,
     allPrograms: string[],
   ) => string[];
+
+  getAvailableSpecializationsForYear: (yearLevel: string) => string[]; // ✅ ADD
+
   getDefaultGroupValues: (
     yearLevel: string,
-  ) => Pick<StudentGroup, "sem" | "program">;
+  ) => Pick<StudentGroup, "sem" | "program" | "specialization">; // ✅ FIX
 }
 
 const StudentPairingStep: React.FC<StudentPairingStepProps> = ({
@@ -39,9 +45,10 @@ const StudentPairingStep: React.FC<StudentPairingStepProps> = ({
   onUpdatePairing,
   onBack,
   onSave,
-  isSaving, // Add this
+  isSaving,
   getAvailableSemestersForYear,
   getAvailableProgramsForYear,
+  getAvailableSpecializationsForYear, // ✅ ADD
   getDefaultGroupValues,
 }) => {
   return (
@@ -65,6 +72,9 @@ const StudentPairingStep: React.FC<StudentPairingStepProps> = ({
               onUpdate={onUpdatePairing}
               getAvailableSemestersForYear={getAvailableSemestersForYear}
               getAvailableProgramsForYear={getAvailableProgramsForYear}
+              getAvailableSpecializationsForYear={
+                getAvailableSpecializationsForYear
+              } // ✅ PASS DOWN
               getDefaultGroupValues={getDefaultGroupValues}
             />
           ))}
