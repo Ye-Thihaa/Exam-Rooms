@@ -193,12 +193,27 @@ export async function createRoom(
   room: Omit<Room, "room_id">,
 ): Promise<{ success: boolean; data?: Room; error?: any }> {
   try {
+    // Prepare the insert data, filtering out undefined values
+    const insertData: any = {
+      room_number: room.room_number,
+      capacity: room.capacity,
+      is_available: true, // New rooms are available by default
+    };
+
+    // Only include optional fields if they have values
+    if (room.room_type !== undefined && room.room_type !== "") {
+      insertData.room_type = room.room_type;
+    }
+    if (room.rows !== undefined) {
+      insertData.rows = room.rows;
+    }
+    if (room.cols !== undefined) {
+      insertData.cols = room.cols;
+    }
+
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .insert({
-        ...room,
-        is_available: true, // New rooms are available by default
-      })
+      .insert(insertData)
       .select()
       .single();
 
@@ -222,9 +237,12 @@ export async function updateRoom(
   updates: Partial<Room>,
 ): Promise<{ success: boolean; data?: Room; error?: any }> {
   try {
+    // Filter out room_id from updates to prevent modification
+    const { room_id, ...updateData } = updates as any;
+
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .update(updates)
+      .update(updateData)
       .eq("room_id", roomId)
       .select()
       .single();

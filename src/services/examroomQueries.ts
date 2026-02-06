@@ -103,6 +103,7 @@ export interface ExamRoom {
   program_secondary?: string;
   specialization_secondary?: string;
   students_secondary?: number;
+  stu_assigned?: boolean;
   created_at?: string;
 }
 

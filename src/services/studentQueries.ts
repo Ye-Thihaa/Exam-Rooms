@@ -8,7 +8,8 @@ export interface Student {
   retake: boolean;
   major?: string | null;
   sem?: number | null;
-  specialization?: string | null; // ✅ ADDED
+  specialization?: string | null;
+  is_assigned?: boolean;
   id?: number;
 }
 
@@ -19,9 +20,8 @@ function addIdField(student: Student): Student & { id: number } {
   return { ...student, id: student.student_id };
 }
 
-// Reusable select fields (keeps all queries consistent)
 const STUDENT_SELECT =
-  "student_id, student_number, name, year_level, retake, major, sem, specialization";
+  "student_id, student_number, name, year_level, retake, major, sem, specialization, is_assigned";
 
 /**
  * Get total count of students in the database
