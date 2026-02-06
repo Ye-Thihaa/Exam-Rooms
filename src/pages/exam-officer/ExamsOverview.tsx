@@ -12,11 +12,9 @@ import {
 
 // Helper function to convert year_level string to number
 function yearLevelToNumber(yearLevel: string): number {
-  // If it's already numeric, parse it
   const parsed = parseInt(yearLevel, 10);
   if (!isNaN(parsed)) return parsed;
 
-  // Otherwise match word format
   const match = yearLevel.match(/(\w+)\s+Year/i);
   if (!match) return 0;
 
@@ -44,7 +42,6 @@ function normalizeSpecializationCode(code: string): string {
     CN: "Communication and Networking",
     ES: "Embedded Systems",
     CSEC: "Cyber Security",
-
     "Software Engineering": "Software Engineering",
     "Knowledge Engineering": "Knowledge Engineering",
     "Business Information Systems": "Business Information Systems",
@@ -59,37 +56,18 @@ function normalizeSpecializationCode(code: string): string {
 }
 
 function semesterToNumber(semester: string): number {
-  // If it's already numeric, parse it
   const parsed = parseInt(semester, 10);
   if (!isNaN(parsed)) return parsed;
 
-  // Otherwise match word format
   const s = (semester || "").toLowerCase();
   if (s.includes("first")) return 1;
   if (s.includes("second")) return 2;
   return 0;
 }
 
-// Helper function to calculate cumulative semester number
-function calculateCumulativeSemester(
-  yearLevel: string,
-  semester: string,
-): string {
-  const year = yearLevelToNumber(yearLevel);
-  const sem = semesterToNumber(semester);
-
-  if (year === 0 || sem === 0) return "0";
-
-  const cumulative = (year - 1) * 2 + sem;
-  return cumulative.toString();
-}
-
-// Helper to convert cumulative sem back to readable format
-function getSemesterDisplay(yearLevel: string, cumulativeSem: string): string {
-  const year = parseInt(yearLevel);
-  const sem = parseInt(cumulativeSem);
-  const semesterInYear = sem % 2 === 0 ? 2 : 1;
-  return `Year ${year} - Semester ${semesterInYear}`;
+// Helper to get semester display
+function getSemesterDisplay(yearLevel: string, semester: string): string {
+  return `Year ${yearLevel} - Semester ${semester}`;
 }
 
 // View model for date-grouped display
@@ -179,42 +157,31 @@ const ExamsOverview: React.FC = () => {
       setErrorMsg(null);
 
       try {
-        // 1) Get unique exam dates
+        // 1. Get unique exam dates
         const uniqueDates = await examQueries.getUniqueDates();
 
-        // 2) Get rooms grouped by date
-        const roomsResult = await examRoomQueries.getRoomsGroupedByDate();
-        if (!roomsResult.success) {
-          throw new Error(
-            roomsResult.error?.message || "Failed to load exam schedules",
-          );
-        }
+        // 2. Get rooms for each date using the new function
+        const dateGroups: ExamDateGroup[] = [];
 
-        const roomsByDate = roomsResult.data || {};
-
-        console.log("Rooms by date:", JSON.stringify(roomsByDate, null, 2));
-
-        // 3) Transform into date groups
-        const dateGroups: ExamDateGroup[] = uniqueDates.map((dateInfo) => {
+        for (const dateInfo of uniqueDates) {
           const date = dateInfo.exam_date;
-          const roomsOnDate = roomsByDate[date] || [];
+
+          // ✅ Use the new getRoomsByDate function
+          const roomsResult = await examRoomQueries.getRoomsByDate(date);
+
+          if (!roomsResult.success) {
+            console.error(
+              `Failed to load rooms for ${date}:`,
+              roomsResult.error,
+            );
+            continue;
+          }
+
+          const roomsOnDate = roomsResult.data?.[date] || [];
+
+          console.log(`Rooms on ${date}:`, roomsOnDate);
 
           const rooms: RoomSchedule[] = roomsOnDate.map((examRoom) => {
-            console.log(`Room on ${date}:`, {
-              room_id: examRoom.room_id,
-              exam_room_id: examRoom.exam_room_id,
-              year_level_primary: examRoom.year_level_primary,
-              sem_primary: examRoom.sem_primary,
-              program_primary: examRoom.program_primary,
-              specialization_primary: examRoom.specialization_primary,
-              year_level_secondary: examRoom.year_level_secondary,
-              sem_secondary: examRoom.sem_secondary,
-              program_secondary: examRoom.program_secondary,
-              specialization_secondary: examRoom.specialization_secondary,
-            });
-
-            // Always include both groups if they exist in the exam_room assignment
-            // The room card will show both, but the modal will only show exams that match
             return {
               roomId: examRoom.room_id,
               roomNumber: examRoom.room?.room_number || "Unknown",
@@ -242,12 +209,12 @@ const ExamsOverview: React.FC = () => {
             };
           });
 
-          return {
+          dateGroups.push({
             examDate: date,
             dayOfWeek: dateInfo.day_of_week,
             rooms,
-          };
-        });
+          });
+        }
 
         if (!mounted) return;
         setExamDates(dateGroups);
@@ -306,7 +273,7 @@ const ExamsOverview: React.FC = () => {
         );
         const examSpec = normalizeSpecializationCode(exam.specialization || "");
 
-        // Match year, semester (as-is), program, AND specialization
+        // Match year, semester, program, AND specialization
         return (
           examYearNum.toString() === group.yearLevel &&
           examSemNum.toString() === group.semester &&
@@ -472,89 +439,83 @@ const ExamsOverview: React.FC = () => {
                     No rooms assigned for this date
                   </div>
                 ) : (
-                  dateGroup.rooms.map((room) => {
-                    // Check if each group has exams on this date (for visual indicator)
-                    const primaryHasExam = room.primaryGroup ? true : false; // Will be determined by backend
-                    const secondaryHasExam = room.secondaryGroup ? true : false;
-
-                    return (
-                      <div
-                        key={`${dateGroup.examDate}-${room.roomId}`}
-                        className="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer bg-background"
-                        onClick={() =>
-                          handleRoomClick(
-                            room.roomId,
-                            room.roomNumber,
-                            room.roomCapacity,
-                            dateGroup.examDate,
-                            dateGroup.dayOfWeek,
-                            room,
-                          )
-                        }
-                      >
-                        {/* Room Header */}
-                        <div className="flex items-center gap-2 mb-3">
-                          <MapPin className="h-4 w-4 text-primary" />
-                          <div>
-                            <p className="font-semibold text-foreground">
-                              {room.roomNumber}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Capacity: {room.roomCapacity}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Assigned Groups */}
-                        <div className="space-y-2">
-                          {room.primaryGroup && (
-                            <div className="border-l-2 border-blue-500 pl-2">
-                              <p className="text-sm font-medium text-foreground">
-                                {getSemesterDisplay(
-                                  room.primaryGroup.yearLevel,
-                                  room.primaryGroup.semester,
-                                )}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {room.primaryGroup.program}
-                                {room.primaryGroup.specialization && (
-                                  <span className="ml-1">
-                                    ({room.primaryGroup.specialization})
-                                  </span>
-                                )}
-                              </p>
-                            </div>
-                          )}
-                          {room.secondaryGroup && (
-                            <div className="border-l-2 border-green-500 pl-2">
-                              <p className="text-sm font-medium text-foreground">
-                                {getSemesterDisplay(
-                                  room.secondaryGroup.yearLevel,
-                                  room.secondaryGroup.semester,
-                                )}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {room.secondaryGroup.program}
-                                {room.secondaryGroup.specialization && (
-                                  <span className="ml-1">
-                                    ({room.secondaryGroup.specialization})
-                                  </span>
-                                )}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Total Students */}
-                        <div className="flex items-center gap-1.5 mt-3 pt-3 border-t">
-                          <Users className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm font-medium">
-                            {room.totalStudents} students
-                          </span>
+                  dateGroup.rooms.map((room) => (
+                    <div
+                      key={`${dateGroup.examDate}-${room.roomId}`}
+                      className="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer bg-background"
+                      onClick={() =>
+                        handleRoomClick(
+                          room.roomId,
+                          room.roomNumber,
+                          room.roomCapacity,
+                          dateGroup.examDate,
+                          dateGroup.dayOfWeek,
+                          room,
+                        )
+                      }
+                    >
+                      {/* Room Header */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <MapPin className="h-4 w-4 text-primary" />
+                        <div>
+                          <p className="font-semibold text-foreground">
+                            {room.roomNumber}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Capacity: {room.roomCapacity}
+                          </p>
                         </div>
                       </div>
-                    );
-                  })
+
+                      {/* Assigned Groups */}
+                      <div className="space-y-2">
+                        {room.primaryGroup && (
+                          <div className="border-l-2 border-blue-500 pl-2">
+                            <p className="text-sm font-medium text-foreground">
+                              {getSemesterDisplay(
+                                room.primaryGroup.yearLevel,
+                                room.primaryGroup.semester,
+                              )}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {room.primaryGroup.program}
+                              {room.primaryGroup.specialization && (
+                                <span className="ml-1">
+                                  ({room.primaryGroup.specialization})
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        )}
+                        {room.secondaryGroup && (
+                          <div className="border-l-2 border-green-500 pl-2">
+                            <p className="text-sm font-medium text-foreground">
+                              {getSemesterDisplay(
+                                room.secondaryGroup.yearLevel,
+                                room.secondaryGroup.semester,
+                              )}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {room.secondaryGroup.program}
+                              {room.secondaryGroup.specialization && (
+                                <span className="ml-1">
+                                  ({room.secondaryGroup.specialization})
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Total Students */}
+                      <div className="flex items-center gap-1.5 mt-3 pt-3 border-t">
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">
+                          {room.totalStudents} students
+                        </span>
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
             </div>

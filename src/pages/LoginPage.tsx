@@ -18,14 +18,6 @@ import { UiTLogo } from "@/components/UitLogo";
 
 const roleInfo = [
   {
-    role: "admin",
-    label: "Administrator",
-    email: "admin@university.edu",
-    password: "admin123",
-    icon: Shield,
-    description: "Full system access",
-  },
-  {
     role: "exam_officer",
     label: "Exam Officer",
     email: "examofficer@university.edu",

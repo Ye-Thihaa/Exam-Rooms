@@ -8,6 +8,7 @@ interface StudentStats {
   year1: number;
   year2: number;
   year3: number;
+
   year3_cs: number;
   year3_ct: number;
   year4: number;
