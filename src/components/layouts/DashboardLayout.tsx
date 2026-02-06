@@ -19,6 +19,7 @@ import {
   Settings,
   ChevronDown,
   Armchair,
+  LayoutGrid,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -55,7 +56,7 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "Manage Rooms",
       path: "/exam-officer/room-management",
     },
-    { icon: Armchair, label: "Seating Plans", path: "/exam-officer/seating" },
+    { icon: LayoutGrid, label: "Seating Plans", path: "/exam-officer/seating" },
 
     {
       icon: BookOpen,

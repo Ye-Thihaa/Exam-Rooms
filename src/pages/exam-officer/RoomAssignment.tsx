@@ -24,13 +24,21 @@ import {
 interface StudentStats {
   total: number;
   year1: number;
+  year1_assigned: number;
+  year1_unassigned: number;
   year2: number;
+  year2_assigned: number;
+  year2_unassigned: number;
   year3: number;
   year3_cs: number;
+  year3_cs_assigned: number;
+  year3_cs_unassigned: number;
   year3_ct: number;
+  year3_ct_assigned: number;
+  year3_ct_unassigned: number;
   year4: number;
   year4_programs: Record<string, number>;
-  year4_specializations: Record<string, number>;
+  year4_specializations: Record<string, { total: number; assigned: number }>;
 }
 
 export interface RoomPairing {
@@ -162,42 +170,96 @@ const useStudentStats = () => {
         getStudentsByYearLevel(4),
       ]);
 
+      // Year 1 breakdown
+      const year1_assigned = year1.filter((s) => s.is_assigned).length;
+      const year1_unassigned = year1.length - year1_assigned;
+
+      // Year 2 breakdown
+      const year2_assigned = year2.filter((s) => s.is_assigned).length;
+      const year2_unassigned = year2.length - year2_assigned;
+
+      // Year 3 breakdown
       const year3_cs = year3.filter((s) =>
         ["CS", "Computer Science"].includes(s.major || ""),
-      ).length;
-
+      );
       const year3_ct = year3.filter((s) =>
         ["CT", "Computer Technology"].includes(s.major || ""),
-      ).length;
-
-      const year4_programs = year4.reduce(
-        (acc, student) => {
-          const program = student.major || "Unknown";
-          acc[program] = (acc[program] || 0) + 1;
-          return acc;
-        },
-        {} as Record<string, number>,
       );
 
-      const year4_specializations = year4.reduce(
-        (acc, student) => {
-          const spec = student.specialization || "Unknown";
-          acc[spec] = (acc[spec] || 0) + 1;
-          return acc;
-        },
-        {} as Record<string, number>,
+      const year3_cs_assigned = year3_cs.filter((s) => s.is_assigned).length;
+      const year3_cs_unassigned = year3_cs.length - year3_cs_assigned;
+      const year3_ct_assigned = year3_ct.filter((s) => s.is_assigned).length;
+      const year3_ct_unassigned = year3_ct.length - year3_ct_assigned;
+
+      // Year 4 breakdown by specialization
+      const year4_cs = year4.filter((s) =>
+        ["CS", "Computer Science"].includes(s.major || ""),
       );
+      const year4_ct = year4.filter((s) =>
+        ["CT", "Computer Technology"].includes(s.major || ""),
+      );
+
+      // CS specializations
+      const year4_se = year4_cs.filter((s) => s.specialization === "SE");
+      const year4_ke = year4_cs.filter((s) => s.specialization === "KE");
+      const year4_bis = year4_cs.filter((s) => s.specialization === "BIS");
+      const year4_hpc = year4_cs.filter((s) => s.specialization === "HPC");
+
+      // CT specializations
+      const year4_cn = year4_ct.filter((s) => s.specialization === "CN");
+      const year4_csec = year4_ct.filter((s) => s.specialization === "CSEC");
+      const year4_es = year4_ct.filter((s) => s.specialization === "ES");
 
       setStudentStats({
         total,
         year1: year1.length,
+        year1_assigned,
+        year1_unassigned,
         year2: year2.length,
+        year2_assigned,
+        year2_unassigned,
         year3: year3.length,
-        year3_cs,
-        year3_ct,
+        year3_cs: year3_cs.length,
+        year3_cs_assigned,
+        year3_cs_unassigned,
+        year3_ct: year3_ct.length,
+        year3_ct_assigned,
+        year3_ct_unassigned,
         year4: year4.length,
-        year4_programs,
-        year4_specializations,
+        year4_programs: {
+          "Computer Science": year4_cs.length,
+          "Computer Technology": year4_ct.length,
+        },
+        year4_specializations: {
+          SE: {
+            total: year4_se.length,
+            assigned: year4_se.filter((s) => s.is_assigned).length,
+          },
+          KE: {
+            total: year4_ke.length,
+            assigned: year4_ke.filter((s) => s.is_assigned).length,
+          },
+          BIS: {
+            total: year4_bis.length,
+            assigned: year4_bis.filter((s) => s.is_assigned).length,
+          },
+          HPC: {
+            total: year4_hpc.length,
+            assigned: year4_hpc.filter((s) => s.is_assigned).length,
+          },
+          CN: {
+            total: year4_cn.length,
+            assigned: year4_cn.filter((s) => s.is_assigned).length,
+          },
+          CSEC: {
+            total: year4_csec.length,
+            assigned: year4_csec.filter((s) => s.is_assigned).length,
+          },
+          ES: {
+            total: year4_es.length,
+            assigned: year4_es.filter((s) => s.is_assigned).length,
+          },
+        },
       });
 
       toast.success("Student statistics loaded");
