@@ -30,6 +30,7 @@ interface StudentStats {
   year3_ct: number;
   year4: number;
   year4_programs: Record<string, number>;
+  year4_specializations: Record<string, number>; // ✅ ADDED
 }
 
 export interface RoomPairing {
@@ -45,28 +46,69 @@ export interface StudentGroup {
   year_level: string;
   sem: string;
   program: string;
+  specialization: string;
 }
 
 interface AvailableOptions {
   yearLevels: string[];
   semesters: string[];
   programs: string[];
+  specializations: string[];
 }
 
 // Constants
 const STUDENTS_PER_GROUP = 18;
 const MAX_ROOM_CAPACITY = 36;
 
-const YEAR_SEMESTER_MAP: Record<string, string> = {
-  "1": "1",
-  "2": "3",
-  "3": "5",
+// Year level display mapping
+const YEAR_LEVEL_DISPLAY: Record<string, string> = {
+  "1": "First Year",
+  "2": "Second Year",
+  "3": "Third Year",
+  "4": "Fourth Year",
 };
 
+// Semester display mapping (odd = First, even = Second)
+const getSemesterDisplay = (sem: string): string => {
+  const semNum = parseInt(sem);
+  return semNum % 2 === 1 ? "First Semester" : "Second Semester";
+};
+
+// Program display mapping
+const PROGRAM_DISPLAY: Record<string, string> = {
+  CST: "Computer Science and Technology",
+  CS: "Computer Science",
+  CT: "Computer Technology",
+};
+
+// ✅ UPDATED: Specialization options per year level
+const SPECIALIZATION_OPTIONS: Record<string, string[]> = {
+  "1": ["CST"], // Year 1: Only CST
+  "2": ["CST"], // Year 2: Only CST
+  "3": ["CS", "CT"], // Year 3: CS or CT (matches program)
+  "4": ["SE", "KE", "HPC", "BIS", "CN", "ES", "CSEC"], // Year 4: All specializations
+};
+
+// ✅ UPDATED: Program-to-Specialization mapping for Year 4
+const PROGRAM_SPECIALIZATION_MAP: Record<string, string[]> = {
+  CS: ["SE", "KE", "HPC", "BIS"], // CS program -> these specializations
+  CT: ["CN", "ES", "CSEC"], // CT program -> these specializations
+};
+
+// Default semester per year level
+const YEAR_SEMESTER_MAP: Record<string, string> = {
+  "1": "1",
+  "2": "1",
+  "3": "1",
+  "4": "1", // Default to semester 1, but Year 4 can also choose semester 2
+};
+
+// Available programs per year level
 const YEAR_PROGRAM_MAP: Record<string, string[]> = {
   "1": ["CST"],
   "2": ["CST"],
   "3": ["CS", "CT"],
+  "4": ["CS", "CT"], // Year 4 has both CS and CT programs
 };
 
 // Hooks
@@ -121,17 +163,27 @@ const useStudentStats = () => {
       ]);
 
       const year3_cs = year3.filter((s) =>
-        ["CS", "Computer Science"].includes(s.major),
+        ["CS", "Computer Science"].includes(s.major || ""),
       ).length;
 
       const year3_ct = year3.filter((s) =>
-        ["CT", "Computer Technology"].includes(s.major),
+        ["CT", "Computer Technology"].includes(s.major || ""),
       ).length;
 
       const year4_programs = year4.reduce(
         (acc, student) => {
           const program = student.major || "Unknown";
           acc[program] = (acc[program] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>,
+      );
+
+      // ✅ ADDED: Count Year 4 students by specialization
+      const year4_specializations = year4.reduce(
+        (acc, student) => {
+          const spec = student.specialization || "Unknown";
+          acc[spec] = (acc[spec] || 0) + 1;
           return acc;
         },
         {} as Record<string, number>,
@@ -146,6 +198,7 @@ const useStudentStats = () => {
         year3_ct,
         year4: year4.length,
         year4_programs,
+        year4_specializations,
       });
 
       toast.success("Student statistics loaded");
@@ -165,6 +218,7 @@ const useAvailableOptions = () => {
     yearLevels: [],
     semesters: [],
     programs: [],
+    specializations: [],
   });
 
   useEffect(() => {
@@ -187,14 +241,19 @@ const useAvailableOptions = () => {
       ].sort();
 
       const semesters = [
-        ...new Set(allStudents.map((s) => s.sem.toString())),
+        ...new Set(allStudents.map((s) => s.sem?.toString()).filter(Boolean)),
       ].sort();
 
       const programs = [...new Set(allStudents.map((s) => s.major))]
         .filter(Boolean)
         .sort();
 
-      setOptions({ yearLevels, semesters, programs });
+      // Get all possible specializations from database
+      const specializations = [
+        ...new Set(allStudents.map((s) => s.specialization).filter(Boolean)),
+      ].sort();
+
+      setOptions({ yearLevels, semesters, programs, specializations });
     } catch (error) {
       console.error("Error loading available options:", error);
     }
@@ -208,23 +267,42 @@ const createInitialPairings = (rooms: Room[]): RoomPairing[] => {
   return rooms.map((room) => ({
     id: `${room.room_id}-${Date.now()}`,
     room,
-    group_primary: { year_level: "", sem: "", program: "" },
-    group_secondary: { year_level: "", sem: "", program: "" },
+    group_primary: { year_level: "", sem: "", program: "", specialization: "" },
+    group_secondary: {
+      year_level: "",
+      sem: "",
+      program: "",
+      specialization: "",
+    },
     students_primary: STUDENTS_PER_GROUP,
     students_secondary: STUDENTS_PER_GROUP,
   }));
 };
 
+// ✅ UPDATED: Get default values when year level is selected
 const getDefaultGroupValues = (
   yearLevel: string,
-): Pick<StudentGroup, "sem" | "program"> => {
+): Pick<StudentGroup, "sem" | "program" | "specialization"> => {
   const sem = YEAR_SEMESTER_MAP[yearLevel] || "";
   const programs = YEAR_PROGRAM_MAP[yearLevel] || [];
   const program = programs.length === 1 ? programs[0] : "";
 
-  return { sem, program };
+  // Get default specialization based on year and program
+  let specialization = "";
+
+  if (yearLevel === "1" || yearLevel === "2") {
+    // Year 1 & 2: Always CST
+    specialization = "CST";
+  } else if (yearLevel === "3" && program) {
+    // Year 3: Specialization matches program (CS or CT)
+    specialization = program;
+  }
+  // Year 4: No default, user must select based on program
+
+  return { sem, program, specialization };
 };
 
+// ✅ UPDATED: Get available semesters for a year level
 const getAvailableSemestersForYear = (
   yearLevel: string,
   allSemesters: string[],
@@ -232,24 +310,38 @@ const getAvailableSemestersForYear = (
   if (!yearLevel) return allSemesters;
 
   if (yearLevel === "4") {
-    return ["7", "8"];
+    // Year 4 can have semester 1 or 2
+    return ["1", "2"];
   }
 
+  // Year 1-3: Fixed to semester 1
   const sem = YEAR_SEMESTER_MAP[yearLevel];
   return sem ? [sem] : allSemesters;
 };
 
+// Get available programs for a year level
 const getAvailableProgramsForYear = (
   yearLevel: string,
   allPrograms: string[],
 ): string[] => {
   if (!yearLevel) return allPrograms;
+  return YEAR_PROGRAM_MAP[yearLevel] || allPrograms;
+};
 
-  if (yearLevel === "4") {
-    return allPrograms.filter((p) => p !== "CST");
+// ✅ NEW: Get available specializations for a year level and program
+const getAvailableSpecializationsForYear = (
+  yearLevel: string,
+  program?: string,
+): string[] => {
+  if (!yearLevel) return [];
+
+  if (yearLevel === "4" && program) {
+    // Year 4: Filter by program
+    return PROGRAM_SPECIALIZATION_MAP[program] || [];
   }
 
-  return YEAR_PROGRAM_MAP[yearLevel] || allPrograms;
+  // Year 1-3: Return fixed options
+  return SPECIALIZATION_OPTIONS[yearLevel] || [];
 };
 
 const logAssignmentData = (pairings: RoomPairing[]) => {
@@ -262,14 +354,14 @@ const logAssignmentData = (pairings: RoomPairing[]) => {
     console.log(`\n${index + 1}. ${pairing.room.room_number}`);
     console.log(
       "   Primary Group:",
-      `Year ${pairing.group_primary.year_level}, Sem ${pairing.group_primary.sem}, ${pairing.group_primary.program}`,
+      `Year ${pairing.group_primary.year_level}, Sem ${pairing.group_primary.sem}, ${PROGRAM_DISPLAY[pairing.group_primary.program] || pairing.group_primary.program}, Specialization: ${pairing.group_primary.specialization}`,
       "-",
       pairing.students_primary,
       "students",
     );
     console.log(
       "   Secondary Group:",
-      `Year ${pairing.group_secondary.year_level}, Sem ${pairing.group_secondary.sem}, ${pairing.group_secondary.program}`,
+      `Year ${pairing.group_secondary.year_level}, Sem ${pairing.group_secondary.sem}, ${PROGRAM_DISPLAY[pairing.group_secondary.program] || pairing.group_secondary.program}, Specialization: ${pairing.group_secondary.specialization}`,
       "-",
       pairing.students_secondary,
       "students",
@@ -293,7 +385,8 @@ const validatePairings = (
     if (
       !pairing.group_primary.year_level ||
       !pairing.group_primary.sem ||
-      !pairing.group_primary.program
+      !pairing.group_primary.program ||
+      !pairing.group_primary.specialization
     ) {
       errors.push(`${roomLabel}: Primary group is incomplete`);
     }
@@ -302,7 +395,8 @@ const validatePairings = (
     if (
       !pairing.group_secondary.year_level ||
       !pairing.group_secondary.sem ||
-      !pairing.group_secondary.program
+      !pairing.group_secondary.program ||
+      !pairing.group_secondary.specialization
     ) {
       errors.push(`${roomLabel}: Secondary group is incomplete`);
     }
@@ -334,13 +428,24 @@ const convertPairingsToExamRooms = (
     exam_id: examId,
     room_id: pairing.room.room_id,
     assigned_capacity: pairing.students_primary + pairing.students_secondary,
-    year_level_primary: pairing.group_primary.year_level,
-    sem_primary: pairing.group_primary.sem,
-    program_primary: pairing.group_primary.program,
+
+    // ✅ Store as number strings
+    year_level_primary: pairing.group_primary.year_level, // "1", "2", "3", "4"
+    sem_primary: pairing.group_primary.sem, // "1" or "2" (actual semester, not cumulative)
+
+    program_primary:
+      PROGRAM_DISPLAY[pairing.group_primary.program] ||
+      pairing.group_primary.program,
+    specialization_primary: pairing.group_primary.specialization,
     students_primary: pairing.students_primary,
+
     year_level_secondary: pairing.group_secondary.year_level,
-    sem_secondary: pairing.group_secondary.sem,
-    program_secondary: pairing.group_secondary.program,
+    sem_secondary: pairing.group_secondary.sem, // "1" or "2" (actual semester)
+
+    program_secondary:
+      PROGRAM_DISPLAY[pairing.group_secondary.program] ||
+      pairing.group_secondary.program,
+    specialization_secondary: pairing.group_secondary.specialization,
     students_secondary: pairing.students_secondary,
   }));
 };
@@ -349,7 +454,7 @@ const convertPairingsToExamRooms = (
 const RoomAssignment: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
   const [roomPairings, setRoomPairings] = useState<RoomPairing[]>([]);
-  const [selectedExamId, setSelectedExamId] = useState<number>(1); // You should fetch/select this
+  const [selectedExamId, setSelectedExamId] = useState<number>(1);
   const [isSaving, setIsSaving] = useState(false);
 
   const { availableRooms, selectedRooms, toggleRoomSelection } = useRooms();
@@ -379,7 +484,6 @@ const RoomAssignment: React.FC = () => {
   };
 
   const handleSave = async () => {
-    // Validate pairings
     const validation = validatePairings(roomPairings);
 
     if (!validation.valid) {
@@ -391,10 +495,8 @@ const RoomAssignment: React.FC = () => {
       return;
     }
 
-    // Log assignment data
     logAssignmentData(roomPairings);
 
-    // Save to database
     setIsSaving(true);
     try {
       const examRooms = convertPairingsToExamRooms(
@@ -408,10 +510,6 @@ const RoomAssignment: React.FC = () => {
           `Successfully saved ${roomPairings.length} room assignments!`,
         );
         console.log("Saved data:", result.data);
-
-        // Optionally reset or navigate away
-        // setCurrentStep(1);
-        // setRoomPairings([]);
       } else {
         toast.error("Failed to save room assignments");
         console.error("Save error:", result.error);
@@ -455,6 +553,9 @@ const RoomAssignment: React.FC = () => {
           isSaving={isSaving}
           getAvailableSemestersForYear={getAvailableSemestersForYear}
           getAvailableProgramsForYear={getAvailableProgramsForYear}
+          getAvailableSpecializationsForYear={
+            getAvailableSpecializationsForYear
+          }
           getDefaultGroupValues={getDefaultGroupValues}
         />
       )}

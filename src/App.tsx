@@ -16,7 +16,7 @@ import AdminDashboard from "./pages/admin/AdminDashboard";
 import UserManagement from "./pages/admin/UserManagement";
 import RoleAssignment from "./pages/admin/RoleAssignment";
 import RoomManagement from "./pages/admin/RoomManagement";
-// import ExamsOverview from "./pages/admin/ExamsOverview";
+import ExamsOverview from "./pages/admin/ExamsOverview";
 
 // Exam Officer Pages
 import ExamOfficerDashboard from "./pages/exam-officer/ExamOfficerDashboard";
@@ -89,15 +89,14 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
-            {/* <Route
+            <Route
               path="/admin/exams"
               element={
                 <ProtectedRoute allowedRoles={["admin"]}>
                   <ExamsOverview />
                 </ProtectedRoute>
               }
-            /> */}
-
+            />
             {/* Exam Officer Routes */}
             <Route
               path="/exam-officer"

@@ -13,12 +13,17 @@ import { StudentGroup } from "../../pages/exam-officer/RoomAssignment";
 interface StudentGroupSelectorProps {
   label: string;
   group: StudentGroup;
+
   availableYearLevels: string[];
   availableSemesters: string[];
   availablePrograms: string[];
+  availableSpecializations: string[];
+
   onYearChange: (value: string) => void;
   onSemesterChange: (value: string) => void;
   onProgramChange: (value: string) => void;
+  onSpecializationChange: (value: string) => void;
+
   studentCount: number;
   disabledProgram?: string;
 }
@@ -29,19 +34,35 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
   availableYearLevels,
   availableSemesters,
   availablePrograms,
+  availableSpecializations,
   onYearChange,
   onSemesterChange,
   onProgramChange,
+  onSpecializationChange,
   studentCount,
   disabledProgram,
 }) => {
+  // ✅ Determine if fields should be locked based on year level
+
+  // Semester is locked for Year 1, 2, 3 (always semester 1)
+  // Only Year 4 can choose semester 1 or 2
   const isSemesterLocked = ["1", "2", "3"].includes(group.year_level);
+
+  // Program is locked for Year 1, 2 (always CST)
+  // Year 3 and 4 can choose programs
   const isProgramLocked = ["1", "2"].includes(group.year_level);
+
+  // ✅ Specialization logic:
+  // - Year 1, 2: Locked to CST (auto-filled)
+  // - Year 3: Locked to program value (CS -> CS, CT -> CT)
+  // - Year 4: User must select based on program
+  const isSpecializationLocked = ["1", "2", "3"].includes(group.year_level);
 
   return (
     <div>
       <Label className="text-base font-semibold mb-3 block">{label}</Label>
-      <div className="grid grid-cols-4 gap-3">
+
+      <div className="grid grid-cols-5 gap-3">
         {/* Year Level */}
         <div>
           <Label className="text-xs">Year Level</Label>
@@ -99,6 +120,41 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
                   disabled={program === disabledProgram}
                 >
                   {program}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* ✅ Specialization */}
+        <div>
+          <Label className="text-xs">Specialization</Label>
+          <Select
+            value={group.specialization || ""}
+            onValueChange={onSpecializationChange}
+            disabled={
+              !group.year_level ||
+              isSpecializationLocked ||
+              availableSpecializations.length === 0
+            }
+          >
+            <SelectTrigger>
+              <SelectValue
+                placeholder={
+                  !group.year_level
+                    ? "Select year first"
+                    : group.year_level === "4" && !group.program
+                      ? "Select program first"
+                      : availableSpecializations.length === 0
+                        ? "N/A"
+                        : "Spec"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {availableSpecializations.map((spec) => (
+                <SelectItem key={spec} value={spec}>
+                  {spec}
                 </SelectItem>
               ))}
             </SelectContent>

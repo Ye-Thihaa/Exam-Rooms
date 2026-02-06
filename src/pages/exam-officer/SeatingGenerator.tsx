@@ -27,10 +27,12 @@ interface ExamRoomDetails {
   year_level_primary: string;
   sem_primary: string;
   program_primary: string;
+  specialization_primary?: string;
   students_primary: number;
   year_level_secondary: string;
   sem_secondary: string;
   program_secondary: string;
+  specialization_secondary?: string;
   students_secondary: number;
   room: {
     room_id: number;
@@ -194,7 +196,7 @@ const SeatingGenerator: React.FC = () => {
           rollNumber: rollNumber,
           name: `Roll No: ${rollNumber}`,
           group: "primary",
-          groupLabel: `Y${examRoom.year_level_primary}-S${examRoom.sem_primary}-${examRoom.program_primary}`,
+          groupLabel: `Y${examRoom.year_level_primary}-S${examRoom.sem_primary}-${examRoom.program_primary}${examRoom.specialization_primary ? ` (${examRoom.specialization_primary})` : ""}`,
         };
       },
     );
@@ -208,7 +210,7 @@ const SeatingGenerator: React.FC = () => {
           rollNumber: rollNumber,
           name: `Roll No: ${rollNumber}`,
           group: "secondary",
-          groupLabel: `Y${examRoom.year_level_secondary}-S${examRoom.sem_secondary}-${examRoom.program_secondary}`,
+          groupLabel: `Y${examRoom.year_level_secondary}-S${examRoom.sem_secondary}-${examRoom.program_secondary}${examRoom.specialization_secondary ? ` (${examRoom.specialization_secondary})` : ""}`,
         };
       },
     );
@@ -373,10 +375,10 @@ const SeatingGenerator: React.FC = () => {
         `Seating Plan - Room ${selectedExamRoom.room.room_number}`,
         `Generated on: ${new Date().toLocaleString()}`,
         "",
-        `Primary Group: Y${selectedExamRoom.year_level_primary}-S${selectedExamRoom.sem_primary}-${selectedExamRoom.program_primary} (${selectedExamRoom.students_primary} students)`,
+        `Primary Group: Y${selectedExamRoom.year_level_primary}-S${selectedExamRoom.sem_primary}-${selectedExamRoom.program_primary}${selectedExamRoom.specialization_primary ? ` (${selectedExamRoom.specialization_primary})` : ""} (${selectedExamRoom.students_primary} students)`,
         `Primary Roll Range: ${primaryStartingRoll} - ${formatRollNumber(primaryStartingRoll, selectedExamRoom.students_primary - 1)}`,
         "",
-        `Secondary Group: Y${selectedExamRoom.year_level_secondary}-S${selectedExamRoom.sem_secondary}-${selectedExamRoom.program_secondary} (${selectedExamRoom.students_secondary} students)`,
+        `Secondary Group: Y${selectedExamRoom.year_level_secondary}-S${selectedExamRoom.sem_secondary}-${selectedExamRoom.program_secondary}${selectedExamRoom.specialization_secondary ? ` (${selectedExamRoom.specialization_secondary})` : ""} (${selectedExamRoom.students_secondary} students)`,
         `Secondary Roll Range: ${secondaryStartingRoll} - ${formatRollNumber(secondaryStartingRoll, selectedExamRoom.students_secondary - 1)}`,
         "",
         `Total Assigned: ${selectedExamRoom.assigned_capacity} / ${selectedExamRoom.room.capacity}`,
@@ -464,8 +466,8 @@ const SeatingGenerator: React.FC = () => {
   <text x="${svgWidth / 2}" y="65" class="subheader-text">Generated on: ${new Date().toLocaleString()}</text>
   
   <!-- Group Info -->
-  <text x="${svgWidth / 2}" y="95" class="subheader-text">Primary: Y${selectedExamRoom.year_level_primary}-S${selectedExamRoom.sem_primary}-${selectedExamRoom.program_primary} (${primaryStartingRoll} - ${formatRollNumber(primaryStartingRoll, selectedExamRoom.students_primary - 1)})</text>
-  <text x="${svgWidth / 2}" y="115" class="subheader-text">Secondary: Y${selectedExamRoom.year_level_secondary}-S${selectedExamRoom.sem_secondary}-${selectedExamRoom.program_secondary} (${secondaryStartingRoll} - ${formatRollNumber(secondaryStartingRoll, selectedExamRoom.students_secondary - 1)})</text>
+  <text x="${svgWidth / 2}" y="95" class="subheader-text">Primary: Y${selectedExamRoom.year_level_primary}-S${selectedExamRoom.sem_primary}-${selectedExamRoom.program_primary}${selectedExamRoom.specialization_primary ? ` (${selectedExamRoom.specialization_primary})` : ""} (${primaryStartingRoll} - ${formatRollNumber(primaryStartingRoll, selectedExamRoom.students_primary - 1)})</text>
+  <text x="${svgWidth / 2}" y="115" class="subheader-text">Secondary: Y${selectedExamRoom.year_level_secondary}-S${selectedExamRoom.sem_secondary}-${selectedExamRoom.program_secondary}${selectedExamRoom.specialization_secondary ? ` (${selectedExamRoom.specialization_secondary})` : ""} (${secondaryStartingRoll} - ${formatRollNumber(secondaryStartingRoll, selectedExamRoom.students_secondary - 1)})</text>
   
   <!-- Front Label -->
   <rect x="${marginLeft}" y="${marginTop}" width="${cols * (seatWidth + seatGap) - seatGap}" height="40" fill="#dbeafe" stroke="#2563eb" stroke-width="2" stroke-dasharray="5,5" rx="5"/>
@@ -601,6 +603,12 @@ const SeatingGenerator: React.FC = () => {
                     Y{selectedExamRoom.year_level_primary}-S
                     {selectedExamRoom.sem_primary}-
                     {selectedExamRoom.program_primary}
+                    {selectedExamRoom.specialization_primary && (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        • {selectedExamRoom.specialization_primary}
+                      </span>
+                    )}
                   </p>
                   <p className="text-xs font-medium mt-1 text-primary">
                     Roll: {primaryStartingRoll} -{" "}
@@ -621,6 +629,12 @@ const SeatingGenerator: React.FC = () => {
                     Y{selectedExamRoom.year_level_secondary}-S
                     {selectedExamRoom.sem_secondary}-
                     {selectedExamRoom.program_secondary}
+                    {selectedExamRoom.specialization_secondary && (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        • {selectedExamRoom.specialization_secondary}
+                      </span>
+                    )}
                   </p>
                   <p className="text-xs font-medium mt-1 text-primary">
                     Roll: {secondaryStartingRoll} -{" "}
@@ -706,8 +720,11 @@ const SeatingGenerator: React.FC = () => {
               <p className="text-xs text-muted-foreground mb-2">
                 Y{pendingExamRoom?.year_level_primary}-S
                 {pendingExamRoom?.sem_primary}-
-                {pendingExamRoom?.program_primary} (
-                {pendingExamRoom?.students_primary} students)
+                {pendingExamRoom?.program_primary}
+                {pendingExamRoom?.specialization_primary && (
+                  <> ({pendingExamRoom.specialization_primary})</>
+                )}{" "}
+                ({pendingExamRoom?.students_primary} students)
               </p>
               <Input
                 id="primary-roll"
@@ -735,8 +752,11 @@ const SeatingGenerator: React.FC = () => {
               <p className="text-xs text-muted-foreground mb-2">
                 Y{pendingExamRoom?.year_level_secondary}-S
                 {pendingExamRoom?.sem_secondary}-
-                {pendingExamRoom?.program_secondary} (
-                {pendingExamRoom?.students_secondary} students)
+                {pendingExamRoom?.program_secondary}
+                {pendingExamRoom?.specialization_secondary && (
+                  <> ({pendingExamRoom.specialization_secondary})</>
+                )}{" "}
+                ({pendingExamRoom?.students_secondary} students)
               </p>
               <Input
                 id="secondary-roll"
@@ -854,6 +874,12 @@ const SeatingGenerator: React.FC = () => {
                     <p className="text-sm font-medium">
                       Year {examRoom.year_level_primary} • Sem{" "}
                       {examRoom.sem_primary} • {examRoom.program_primary}
+                      {examRoom.specialization_primary && (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          • {examRoom.specialization_primary}
+                        </span>
+                      )}
                     </p>
                   </div>
 
@@ -869,6 +895,12 @@ const SeatingGenerator: React.FC = () => {
                     <p className="text-sm font-medium">
                       Year {examRoom.year_level_secondary} • Sem{" "}
                       {examRoom.sem_secondary} • {examRoom.program_secondary}
+                      {examRoom.specialization_secondary && (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          • {examRoom.specialization_secondary}
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>

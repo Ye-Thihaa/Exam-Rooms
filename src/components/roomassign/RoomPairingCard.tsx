@@ -14,19 +14,28 @@ interface RoomPairingCardProps {
     yearLevels: string[];
     semesters: string[];
     programs: string[];
+    specializations: string[];
   };
   onUpdate: (id: string, field: keyof RoomPairing, value: any) => void;
+
   getAvailableSemestersForYear: (
     yearLevel: string,
     allSemesters: string[],
   ) => string[];
+
   getAvailableProgramsForYear: (
     yearLevel: string,
     allPrograms: string[],
   ) => string[];
+
+  getAvailableSpecializationsForYear: (
+    yearLevel: string,
+    program?: string,
+  ) => string[];
+
   getDefaultGroupValues: (
     yearLevel: string,
-  ) => Pick<StudentGroup, "sem" | "program">;
+  ) => Pick<StudentGroup, "sem" | "program" | "specialization">;
 }
 
 const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
@@ -35,6 +44,7 @@ const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
   onUpdate,
   getAvailableSemestersForYear,
   getAvailableProgramsForYear,
+  getAvailableSpecializationsForYear,
   getDefaultGroupValues,
 }) => {
   const totalStudents = pairing.students_primary + pairing.students_secondary;
@@ -46,8 +56,14 @@ const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
     pairing.group_primary.year_level === pairing.group_secondary.year_level &&
     pairing.group_primary.sem === pairing.group_secondary.sem &&
     pairing.group_primary.program === pairing.group_secondary.program &&
+    pairing.group_primary.specialization ===
+      pairing.group_secondary.specialization &&
     pairing.group_primary.program !== "";
 
+  /**
+   * ✅ Handle year level change
+   * Auto-fills semester, program, and specialization based on year level
+   */
   const handleYearChange = (
     groupType: "group_primary" | "group_secondary",
     yearLevel: string,
@@ -59,6 +75,9 @@ const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
     });
   };
 
+  /**
+   * ✅ Handle field changes (semester, program, specialization)
+   */
   const handleFieldChange = (
     groupType: "group_primary" | "group_secondary",
     field: keyof StudentGroup,
@@ -69,10 +88,26 @@ const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
         ? pairing.group_primary
         : pairing.group_secondary;
 
-    onUpdate(pairing.id, groupType, {
+    const nextGroup: StudentGroup = {
       ...currentGroup,
       [field]: value,
-    });
+    } as StudentGroup;
+
+    // ✅ AUTO-UPDATE specialization based on program
+    if (field === "program") {
+      if (nextGroup.year_level === "1" || nextGroup.year_level === "2") {
+        // Year 1 & 2: Program is CST, specialization is CST
+        nextGroup.specialization = "CST";
+      } else if (nextGroup.year_level === "3") {
+        // Year 3: Specialization matches program (CS or CT)
+        nextGroup.specialization = value;
+      } else if (nextGroup.year_level === "4") {
+        // Year 4: Clear specialization when program changes (user must select)
+        nextGroup.specialization = "";
+      }
+    }
+
+    onUpdate(pairing.id, groupType, nextGroup);
   };
 
   return (
@@ -107,12 +142,19 @@ const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
             pairing.group_primary.year_level,
             availableOptions.programs,
           )}
+          availableSpecializations={getAvailableSpecializationsForYear(
+            pairing.group_primary.year_level,
+            pairing.group_primary.program,
+          )}
           onYearChange={(value) => handleYearChange("group_primary", value)}
           onSemesterChange={(value) =>
             handleFieldChange("group_primary", "sem", value)
           }
           onProgramChange={(value) =>
             handleFieldChange("group_primary", "program", value)
+          }
+          onSpecializationChange={(value) =>
+            handleFieldChange("group_primary", "specialization", value)
           }
           studentCount={pairing.students_primary}
         />
@@ -130,12 +172,19 @@ const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
             pairing.group_secondary.year_level,
             availableOptions.programs,
           )}
+          availableSpecializations={getAvailableSpecializationsForYear(
+            pairing.group_secondary.year_level,
+            pairing.group_secondary.program,
+          )}
           onYearChange={(value) => handleYearChange("group_secondary", value)}
           onSemesterChange={(value) =>
             handleFieldChange("group_secondary", "sem", value)
           }
           onProgramChange={(value) =>
             handleFieldChange("group_secondary", "program", value)
+          }
+          onSpecializationChange={(value) =>
+            handleFieldChange("group_secondary", "specialization", value)
           }
           studentCount={pairing.students_secondary}
           disabledProgram={

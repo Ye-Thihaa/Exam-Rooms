@@ -407,4 +407,21 @@ export const examQueries = {
 
     return grouped;
   },
+
+  // NEW: Get all unique exam dates
+  async getUniqueDates() {
+    const { data, error } = await supabase
+      .from("exam")
+      .select("exam_date, day_of_week")
+      .order("exam_date", { ascending: true });
+
+    if (error) throw error;
+
+    // Get unique dates with their day of week
+    const uniqueDates = Array.from(
+      new Map(data.map((item) => [item.exam_date, item])).values(),
+    );
+
+    return uniqueDates as Array<{ exam_date: string; day_of_week: string }>;
+  },
 };

@@ -6,8 +6,9 @@ export interface Student {
   name: string;
   year_level: number;
   retake: boolean;
-  major?: string;
-  sem?: number;
+  major?: string | null;
+  sem?: number | null;
+  specialization?: string | null; // ✅ ADDED
   id?: number;
 }
 
@@ -17,6 +18,10 @@ const TABLE_NAME = "student";
 function addIdField(student: Student): Student & { id: number } {
   return { ...student, id: student.student_id };
 }
+
+// Reusable select fields (keeps all queries consistent)
+const STUDENT_SELECT =
+  "student_id, student_number, name, year_level, retake, major, sem, specialization";
 
 /**
  * Get total count of students in the database
@@ -49,9 +54,7 @@ export async function getRecentStudents(
   try {
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select(
-        "student_id, student_number, name, year_level, retake, major, sem",
-      )
+      .select(STUDENT_SELECT)
       .order("student_id", { ascending: false })
       .limit(limit);
 
@@ -74,9 +77,7 @@ export async function getAllStudents(): Promise<(Student & { id: number })[]> {
   try {
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select(
-        "student_id, student_number, name, year_level, retake, major, sem",
-      )
+      .select(STUDENT_SELECT)
       .order("name", { ascending: true });
 
     if (error) {
@@ -101,9 +102,7 @@ export async function getStudentById(
   try {
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select(
-        "student_id, student_number, name, year_level, retake, major, sem",
-      )
+      .select(STUDENT_SELECT)
       .eq("student_id", studentId)
       .single();
 
@@ -112,7 +111,7 @@ export async function getStudentById(
       return null;
     }
 
-    return data ? addIdField(data) : null;
+    return data ? addIdField(data as Student) : null;
   } catch (error) {
     console.error("Error in getStudentById:", error);
     return null;
@@ -121,7 +120,6 @@ export async function getStudentById(
 
 /**
  * Get students by year level
- * @param yearLevel - The year level to filter by
  */
 export async function getStudentsByYearLevel(
   yearLevel: number,
@@ -129,9 +127,7 @@ export async function getStudentsByYearLevel(
   try {
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select(
-        "student_id, student_number, name, year_level, retake, major, sem",
-      )
+      .select(STUDENT_SELECT)
       .eq("year_level", yearLevel)
       .order("name", { ascending: true });
 
@@ -149,7 +145,6 @@ export async function getStudentsByYearLevel(
 
 /**
  * Get students by major
- * @param major - The major to filter by
  */
 export async function getStudentsByMajor(
   major: string,
@@ -157,9 +152,7 @@ export async function getStudentsByMajor(
   try {
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select(
-        "student_id, student_number, name, year_level, retake, major, sem",
-      )
+      .select(STUDENT_SELECT)
       .eq("major", major)
       .order("name", { ascending: true });
 
@@ -176,6 +169,31 @@ export async function getStudentsByMajor(
 }
 
 /**
+ * Get students by specialization
+ */
+export async function getStudentsBySpecialization(
+  specialization: string,
+): Promise<(Student & { id: number })[]> {
+  try {
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .select(STUDENT_SELECT)
+      .eq("specialization", specialization)
+      .order("name", { ascending: true });
+
+    if (error) {
+      console.error("Error fetching students by specialization:", error);
+      return [];
+    }
+
+    return (data || []).map(addIdField);
+  } catch (error) {
+    console.error("Error in getStudentsBySpecialization:", error);
+    return [];
+  }
+}
+
+/**
  * Get retake students
  */
 export async function getRetakeStudents(): Promise<
@@ -184,9 +202,7 @@ export async function getRetakeStudents(): Promise<
   try {
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select(
-        "student_id, student_number, name, year_level, retake, major, sem",
-      )
+      .select(STUDENT_SELECT)
       .eq("retake", true)
       .order("name", { ascending: true });
 
@@ -204,7 +220,6 @@ export async function getRetakeStudents(): Promise<
 
 /**
  * Search students by name
- * @param searchTerm - The term to search for in student names
  */
 export async function searchStudentsByName(
   searchTerm: string,
@@ -212,9 +227,7 @@ export async function searchStudentsByName(
   try {
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select(
-        "student_id, student_number, name, year_level, retake, major, sem",
-      )
+      .select(STUDENT_SELECT)
       .ilike("name", `%${searchTerm}%`)
       .order("name", { ascending: true });
 
@@ -236,52 +249,54 @@ export async function searchStudentsByName(
 export async function getStudentStatistics() {
   try {
     const [
-      { count: totalCount },
-      { count: retakeCount },
-      yearLevelCounts,
-      majorCounts,
+      { count: totalCount, error: totalErr },
+      { count: retakeCount, error: retakeErr },
+      yearLevelRows,
+      majorRows,
+      specializationRows,
     ] = await Promise.all([
-      // Total students
       supabase.from(TABLE_NAME).select("*", { count: "exact", head: true }),
-
-      // Retake students
       supabase
         .from(TABLE_NAME)
         .select("*", { count: "exact", head: true })
         .eq("retake", true),
-
-      // Students by year level
       supabase.from(TABLE_NAME).select("year_level"),
-
-      // Students by major
       supabase.from(TABLE_NAME).select("major"),
+      supabase.from(TABLE_NAME).select("specialization"),
     ]);
 
-    // Count students by year level
-    const yearLevelDistribution: Record<number, number> = {};
-    if (yearLevelCounts.data) {
-      yearLevelCounts.data.forEach((student: { year_level: number }) => {
-        yearLevelDistribution[student.year_level] =
-          (yearLevelDistribution[student.year_level] || 0) + 1;
-      });
-    }
+    if (totalErr) console.error("Error totalCount:", totalErr);
+    if (retakeErr) console.error("Error retakeCount:", retakeErr);
 
-    // Count students by major
+    const yearLevelDistribution: Record<number, number> = {};
+    (yearLevelRows.data || []).forEach((row: { year_level: number }) => {
+      yearLevelDistribution[row.year_level] =
+        (yearLevelDistribution[row.year_level] || 0) + 1;
+    });
+
     const majorDistribution: Record<string, number> = {};
-    if (majorCounts.data) {
-      majorCounts.data.forEach((student: { major: string | null }) => {
-        if (student.major) {
-          majorDistribution[student.major] =
-            (majorDistribution[student.major] || 0) + 1;
+    (majorRows.data || []).forEach((row: { major: string | null }) => {
+      if (row.major) {
+        majorDistribution[row.major] = (majorDistribution[row.major] || 0) + 1;
+      }
+    });
+
+    const specializationDistribution: Record<string, number> = {};
+    (specializationRows.data || []).forEach(
+      (row: { specialization: string | null }) => {
+        if (row.specialization) {
+          specializationDistribution[row.specialization] =
+            (specializationDistribution[row.specialization] || 0) + 1;
         }
-      });
-    }
+      },
+    );
 
     return {
       totalStudents: totalCount || 0,
       retakeStudents: retakeCount || 0,
       yearLevelDistribution,
       majorDistribution,
+      specializationDistribution, // ✅ ADDED
     };
   } catch (error) {
     console.error("Error getting student statistics:", error);
@@ -290,13 +305,13 @@ export async function getStudentStatistics() {
       retakeStudents: 0,
       yearLevelDistribution: {},
       majorDistribution: {},
+      specializationDistribution: {},
     };
   }
 }
 
 /**
  * Get unique semesters from all students
- * Returns sorted array of unique semester numbers
  */
 export async function getUniqueSemesters(): Promise<number[]> {
   try {
@@ -310,12 +325,9 @@ export async function getUniqueSemesters(): Promise<number[]> {
       return [];
     }
 
-    // Extract unique semesters and sort
-    const uniqueSemesters = [
-      ...new Set((data || []).map((item: { sem: number }) => item.sem)),
-    ].sort((a, b) => a - b);
-
-    return uniqueSemesters;
+    return [...new Set((data || []).map((x: { sem: number }) => x.sem))].sort(
+      (a, b) => a - b,
+    );
   } catch (error) {
     console.error("Error in getUniqueSemesters:", error);
     return [];
@@ -324,7 +336,6 @@ export async function getUniqueSemesters(): Promise<number[]> {
 
 /**
  * Get unique year levels from all students
- * Returns sorted array of unique year level numbers
  */
 export async function getUniqueYearLevels(): Promise<number[]> {
   try {
@@ -337,14 +348,9 @@ export async function getUniqueYearLevels(): Promise<number[]> {
       return [];
     }
 
-    // Extract unique year levels and sort
-    const uniqueYearLevels = [
-      ...new Set(
-        (data || []).map((item: { year_level: number }) => item.year_level),
-      ),
+    return [
+      ...new Set((data || []).map((x: { year_level: number }) => x.year_level)),
     ].sort((a, b) => a - b);
-
-    return uniqueYearLevels;
   } catch (error) {
     console.error("Error in getUniqueYearLevels:", error);
     return [];
@@ -353,7 +359,6 @@ export async function getUniqueYearLevels(): Promise<number[]> {
 
 /**
  * Get unique majors from all students
- * Returns sorted array of unique major strings (excluding null/undefined)
  */
 export async function getUniqueMajors(): Promise<string[]> {
   try {
@@ -367,14 +372,37 @@ export async function getUniqueMajors(): Promise<string[]> {
       return [];
     }
 
-    // Extract unique majors and sort alphabetically
-    const uniqueMajors = [
-      ...new Set((data || []).map((item: { major: string }) => item.major)),
+    return [
+      ...new Set((data || []).map((x: { major: string }) => x.major)),
     ].sort();
-
-    return uniqueMajors;
   } catch (error) {
     console.error("Error in getUniqueMajors:", error);
+    return [];
+  }
+}
+
+/**
+ * Get unique specializations from all students
+ */
+export async function getUniqueSpecializations(): Promise<string[]> {
+  try {
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .select("specialization")
+      .not("specialization", "is", null);
+
+    if (error) {
+      console.error("Error fetching unique specializations:", error);
+      return [];
+    }
+
+    return [
+      ...new Set(
+        (data || []).map((x: { specialization: string }) => x.specialization),
+      ),
+    ].sort();
+  } catch (error) {
+    console.error("Error in getUniqueSpecializations:", error);
     return [];
   }
 }
