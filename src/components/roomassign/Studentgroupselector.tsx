@@ -8,7 +8,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { StudentGroup } from "../../pages/exam-officer/RoomAssignment";
+
+export interface StudentGroup {
+  year_level: string;
+  sem: string;
+  program: string;
+  specialization: string;
+}
 
 interface StudentGroupSelectorProps {
   label: string;
@@ -42,21 +48,35 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
   studentCount,
   disabledProgram,
 }) => {
-  // ✅ Determine if fields should be locked based on year level
-
-  // Semester is locked for Year 1, 2, 3 (always semester 1)
-  // Only Year 4 can choose semester 1 or 2
-  const isSemesterLocked = ["1", "2", "3"].includes(group.year_level);
-
-  // Program is locked for Year 1, 2 (always CST)
-  // Year 3 and 4 can choose programs
+  // Determine if fields should be locked based on year level
   const isProgramLocked = ["1", "2"].includes(group.year_level);
-
-  // ✅ Specialization logic:
-  // - Year 1, 2: Locked to CST (auto-filled)
-  // - Year 3: Locked to program value (CS -> CS, CT -> CT)
-  // - Year 4: User must select based on program
   const isSpecializationLocked = ["1", "2", "3"].includes(group.year_level);
+
+  // Get display values
+  const getYearDisplay = () => {
+    return group.year_level ? `Year ${group.year_level}` : "Select year";
+  };
+
+  const getSemesterDisplay = () => {
+    return group.sem ? `Sem ${group.sem}` : "Select semester";
+  };
+
+  const getProgramDisplay = () => {
+    if (!group.program) return "Select program";
+    // Shorten long program names for display
+    if (group.program === "Computer Science and Technology") return "CST";
+    if (group.program === "Computer Science") return "CS";
+    if (group.program === "Computer Technology") return "CT";
+    return group.program;
+  };
+
+  const getSpecializationDisplay = () => {
+    if (!group.year_level) return "Select year first";
+    if (group.year_level === "4" && !group.program)
+      return "Select program first";
+    if (!availableSpecializations.length) return "N/A";
+    return group.specialization || "Select spec";
+  };
 
   return (
     <div>
@@ -67,8 +87,8 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
         <div>
           <Label className="text-xs">Year Level</Label>
           <Select value={group.year_level || ""} onValueChange={onYearChange}>
-            <SelectTrigger>
-              <SelectValue placeholder="Year" />
+            <SelectTrigger className="bg-white">
+              <SelectValue>{getYearDisplay()}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {availableYearLevels.map((year) => (
@@ -80,16 +100,16 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
           </Select>
         </div>
 
-        {/* Semester */}
+        {/* Semester - Now always enabled for all years */}
         <div>
           <Label className="text-xs">Semester</Label>
           <Select
             value={group.sem || ""}
             onValueChange={onSemesterChange}
-            disabled={!group.year_level || isSemesterLocked}
+            disabled={!group.year_level}
           >
-            <SelectTrigger>
-              <SelectValue placeholder="Sem" />
+            <SelectTrigger className="bg-white">
+              <SelectValue>{getSemesterDisplay()}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {availableSemesters.map((sem) => (
@@ -109,8 +129,10 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
             onValueChange={onProgramChange}
             disabled={!group.year_level || isProgramLocked}
           >
-            <SelectTrigger>
-              <SelectValue placeholder="Program" />
+            <SelectTrigger
+              className={isProgramLocked ? "bg-gray-100" : "bg-white"}
+            >
+              <SelectValue>{getProgramDisplay()}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {availablePrograms.map((program) => (
@@ -119,14 +141,20 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
                   value={program}
                   disabled={program === disabledProgram}
                 >
-                  {program}
+                  {program === "Computer Science and Technology"
+                    ? "CST"
+                    : program === "Computer Science"
+                      ? "CS"
+                      : program === "Computer Technology"
+                        ? "CT"
+                        : program}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
-        {/* ✅ Specialization */}
+        {/* Specialization */}
         <div>
           <Label className="text-xs">Specialization</Label>
           <Select
@@ -138,18 +166,14 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
               availableSpecializations.length === 0
             }
           >
-            <SelectTrigger>
-              <SelectValue
-                placeholder={
-                  !group.year_level
-                    ? "Select year first"
-                    : group.year_level === "4" && !group.program
-                      ? "Select program first"
-                      : availableSpecializations.length === 0
-                        ? "N/A"
-                        : "Spec"
-                }
-              />
+            <SelectTrigger
+              className={
+                isSpecializationLocked || !availableSpecializations.length
+                  ? "bg-gray-100"
+                  : "bg-white"
+              }
+            >
+              <SelectValue>{getSpecializationDisplay()}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {availableSpecializations.map((spec) => (
