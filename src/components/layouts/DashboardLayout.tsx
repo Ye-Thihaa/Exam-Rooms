@@ -15,6 +15,7 @@ import {
   GraduationCap,
   Shield,
   FileText,
+  School,
   Settings,
   ChevronDown,
 } from "lucide-react";
@@ -32,7 +33,6 @@ const roleNavItems: Record<string, NavItem[]> = {
     { icon: Users, label: "User Management", path: "/admin/users" },
     { icon: Shield, label: "Role Assignment", path: "/admin/roles" },
     { icon: DoorOpen, label: "Room Management", path: "/admin/rooms" },
-    { icon: BookOpen, label: "Exams Overview", path: "/admin/exams" },
   ],
   exam_officer: [
     { icon: LayoutDashboard, label: "Dashboard", path: "/exam-officer" },
@@ -43,6 +43,7 @@ const roleNavItems: Record<string, NavItem[]> = {
     },
     { icon: FileText, label: "Create Exam", path: "/exam-officer/create-exam" },
     { icon: DoorOpen, label: "Room Capacity", path: "/exam-officer/rooms" },
+    { icon: School, label: "Exam Schedules", path: "/exam-officer/exams" },
     {
       icon: Calendar,
       label: "Room Assignment",
@@ -52,6 +53,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       icon: ClipboardList,
       label: "Generate Seating",
       path: "/exam-officer/seating",
+    },
+    {
+      icon: BookOpen,
+      label: "Teacher Assignments",
+      path: "/exam-officer/teacher-assignments",
     },
   ],
   invigilator: [

@@ -16,7 +16,7 @@ import AdminDashboard from "./pages/admin/AdminDashboard";
 import UserManagement from "./pages/admin/UserManagement";
 import RoleAssignment from "./pages/admin/RoleAssignment";
 import RoomManagement from "./pages/admin/RoomManagement";
-import ExamsOverview from "./pages/admin/ExamsOverview";
+import ExamsOverview from "./pages/exam-officer/ExamsOverview";
 
 // Exam Officer Pages
 import ExamOfficerDashboard from "./pages/exam-officer/ExamOfficerDashboard";
@@ -25,7 +25,7 @@ import CreateExam from "./pages/exam-officer/CreateExam";
 import RoomCapacity from "./pages/exam-officer/RoomCapacity";
 import RoomAssignment from "./pages/exam-officer/RoomAssignment";
 import SeatingGenerator from "./pages/exam-officer/SeatingGenerator";
-
+import ExamSchedule from "./pages/exam-officer/Examschedule";
 // Invigilator Pages
 import InvigilatorDashboard from "./pages/invigilator/InvigilatorDashboard";
 import AssignedExams from "./pages/invigilator/AssignedExams";
@@ -119,6 +119,22 @@ const App = () => (
               element={
                 <ProtectedRoute allowedRoles={["exam_officer"]}>
                   <CreateExam />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/exam-officer/teacher-assignments"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <ExamsOverview />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/exam-officer/exams"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <ExamSchedule />
                 </ProtectedRoute>
               }
             />

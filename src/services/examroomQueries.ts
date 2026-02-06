@@ -2,17 +2,11 @@ import supabase from "@/utils/supabase";
 
 // Helper function to convert year_level string to number
 function yearLevelToNumber(yearLevel: string | number): number {
-  // If already a number, return it
   if (typeof yearLevel === "number") return yearLevel;
-
-  // If it's a numeric string, parse it
   const parsed = parseInt(yearLevel, 10);
   if (!isNaN(parsed)) return parsed;
-
-  // Otherwise, try to match word format
   const match = yearLevel.match(/(\w+)\s+Year/i);
   if (!match) return 0;
-
   const yearWord = match[1].toLowerCase();
   const yearMap: Record<string, number> = {
     first: 1,
@@ -25,33 +19,13 @@ function yearLevelToNumber(yearLevel: string | number): number {
 
 // Helper function to convert semester string to number (1 or 2)
 function semesterToNumber(semester: string | number): number {
-  // If already a number, return it
   if (typeof semester === "number") return semester;
-
-  // If it's a numeric string, parse it
   const parsed = parseInt(semester, 10);
   if (!isNaN(parsed)) return parsed;
-
-  // Otherwise, try to match word format
   const s = semester.toLowerCase();
   if (s.includes("first")) return 1;
   if (s.includes("second")) return 2;
   return 0;
-}
-
-// Helper function to calculate cumulative semester number
-// Year 1 Sem 1 = 1, Year 1 Sem 2 = 2, Year 2 Sem 1 = 3, etc.
-function calculateCumulativeSemester(
-  yearLevel: string | number,
-  semester: string | number,
-): string {
-  const year = yearLevelToNumber(yearLevel);
-  const sem = semesterToNumber(semester);
-
-  if (year === 0 || sem === 0) return "0";
-
-  const cumulative = (year - 1) * 2 + sem;
-  return cumulative.toString();
 }
 
 // Helper function to normalize specialization codes
@@ -94,25 +68,18 @@ function examMatchesAssignment(
   assignmentProgram: string,
   assignmentSpecialization: string | null,
 ): boolean {
-  // Convert exam year_level and semester to numbers for comparison
   const examYearNum = yearLevelToNumber(examYearLevel);
   const examSemNum = semesterToNumber(examSemester);
-
-  // The assignment data from exam_room table is stored as-is:
-  // - year_level_primary/secondary = actual year (1, 2, 3, 4)
-  // - sem_primary/secondary = semester as stored (1 or 2)
   const assignmentYearStr = assignmentYearLevel.toString();
   const assignmentSemStr = assignmentSem.toString();
   const examYearStr = examYearNum.toString();
   const examSemStr = examSemNum.toString();
 
-  // Normalize specializations for comparison
   const normalizedExamSpec = normalizeSpecializationCode(examSpecialization);
   const normalizedAssignmentSpec = normalizeSpecializationCode(
     assignmentSpecialization,
   );
 
-  // Match all criteria: year, semester (as-is), program, and specialization
   const yearMatches = examYearStr === assignmentYearStr;
   const semMatches = examSemStr === assignmentSemStr;
   const programMatches = examProgram === assignmentProgram;
@@ -123,7 +90,7 @@ function examMatchesAssignment(
 
 export interface ExamRoom {
   exam_room_id?: number;
-  exam_id: number;
+  exam_id?: number;
   room_id: number;
   assigned_capacity: number;
   year_level_primary?: string;
@@ -140,7 +107,7 @@ export interface ExamRoom {
 }
 
 export interface ExamRoomInsert {
-  exam_id: number;
+  exam_id?: number;
   room_id: number;
   assigned_capacity: number;
   year_level_primary?: string;
@@ -155,7 +122,6 @@ export interface ExamRoomInsert {
   students_secondary?: number;
 }
 
-// NEW INTERFACE FOR DETAILED EXAM ROOM DATA
 export interface ExamRoomWithDetails extends ExamRoom {
   room?: {
     room_id: number;
@@ -176,10 +142,9 @@ export interface ExamRoomWithDetails extends ExamRoom {
 }
 
 /**
- * Save room assignments to the exam_room table
+ * Save room assignments without requiring exam_id
  */
 export const saveExamRoomAssignments = async (
-  examId: number,
   roomAssignments: ExamRoomInsert[],
 ): Promise<{ success: boolean; data?: any; error?: any }> => {
   try {
@@ -227,16 +192,17 @@ export const updateExamRoomAssignment = async (
 };
 
 /**
- * Delete exam room assignments for a specific exam
+ * Delete all exam room assignments
  */
-export const deleteExamRoomAssignments = async (
-  examId: number,
-): Promise<{ success: boolean; error?: any }> => {
+export const deleteExamRoomAssignments = async (): Promise<{
+  success: boolean;
+  error?: any;
+}> => {
   try {
     const { error } = await supabase
       .from("exam_room")
       .delete()
-      .eq("exam_id", examId);
+      .neq("exam_room_id", 0);
 
     if (error) {
       console.error("Error deleting exam room assignments:", error);
@@ -246,44 +212,6 @@ export const deleteExamRoomAssignments = async (
     return { success: true };
   } catch (error) {
     console.error("Exception deleting exam room assignments:", error);
-    return { success: false, error };
-  }
-};
-
-/**
- * Get exam room assignments for a specific exam
- */
-export const getExamRoomAssignments = async (
-  examId: number,
-): Promise<{ success: boolean; data?: ExamRoom[]; error?: any }> => {
-  try {
-    const { data, error } = await supabase
-      .from("exam_room")
-      .select(
-        `
-        *,
-        room:room_id (
-          room_id,
-          room_number,
-          capacity
-        ),
-        exam:exam_id (
-          exam_id,
-          exam_name,
-          exam_date
-        )
-      `,
-      )
-      .eq("exam_id", examId);
-
-    if (error) {
-      console.error("Error fetching exam room assignments:", error);
-      return { success: false, error };
-    }
-
-    return { success: true, data: data as ExamRoom[] };
-  } catch (error) {
-    console.error("Exception fetching exam room assignments:", error);
     return { success: false, error };
   }
 };
@@ -306,11 +234,6 @@ export const getAllExamRoomAssignments = async (): Promise<{
           room_id,
           room_number,
           capacity
-        ),
-        exam:exam_id (
-          exam_id,
-          exam_name,
-          exam_date
         )
       `,
       )
@@ -329,22 +252,19 @@ export const getAllExamRoomAssignments = async (): Promise<{
 };
 
 /**
- * Check if a room is already assigned to an exam
+ * Check if a room is already assigned
  */
-export const isRoomAssignedToExam = async (
-  examId: number,
+export const isRoomAssigned = async (
   roomId: number,
 ): Promise<{ success: boolean; isAssigned?: boolean; error?: any }> => {
   try {
     const { data, error } = await supabase
       .from("exam_room")
       .select("exam_room_id")
-      .eq("exam_id", examId)
       .eq("room_id", roomId)
       .single();
 
     if (error && error.code !== "PGRST116") {
-      // PGRST116 is "not found" error
       console.error("Error checking room assignment:", error);
       return { success: false, error };
     }
@@ -365,7 +285,6 @@ export const getExamRoomsWithDetails = async (): Promise<{
   error?: any;
 }> => {
   try {
-    // Fetch exam rooms first
     const { data: examRoomData, error: examRoomError } = await supabase
       .from("exam_room")
       .select("*")
@@ -380,7 +299,6 @@ export const getExamRoomsWithDetails = async (): Promise<{
       return { success: true, data: [] };
     }
 
-    // Manually fetch room details for each exam room
     const examRoomsWithDetails = await Promise.all(
       examRoomData.map(async (examRoom: any) => {
         const { data: roomData, error: roomError } = await supabase
@@ -407,13 +325,8 @@ export const getExamRoomsWithDetails = async (): Promise<{
   }
 };
 
-// ============================================================================
-// NEW FUNCTIONS ADDED BELOW - For ExamsOverview and Teacher Assignment
-// ============================================================================
-
 /**
- * NEW: Get all exam room assignments with full details (room + exam info)
- * This is specifically for the ExamsOverview page
+ * Get all exam room assignments with full details (room info only)
  */
 export const getAllWithDetails = async (): Promise<{
   success: boolean;
@@ -432,15 +345,6 @@ export const getAllWithDetails = async (): Promise<{
           capacity,
           rows,
           cols
-        ),
-        exam:exam_id (
-          exam_id,
-          exam_name,
-          exam_date,
-          start_time,
-          end_time,
-          subject_code,
-          day_of_week
         )
       `,
       )
@@ -459,74 +363,7 @@ export const getAllWithDetails = async (): Promise<{
 };
 
 /**
- * NEW: Get exam rooms by specific date (for teacher assignment)
- */
-export const getExamRoomsByDate = async (
-  examDate: string,
-): Promise<{
-  success: boolean;
-  data?: ExamRoomWithDetails[];
-  error?: any;
-}> => {
-  try {
-    // First get all exam IDs for this date
-    const { data: examsOnDate, error: examError } = await supabase
-      .from("exam")
-      .select("exam_id")
-      .eq("exam_date", examDate);
-
-    if (examError) {
-      console.error("Error fetching exams by date:", examError);
-      return { success: false, error: examError };
-    }
-
-    if (!examsOnDate || examsOnDate.length === 0) {
-      return { success: true, data: [] };
-    }
-
-    const examIds = examsOnDate.map((e: any) => e.exam_id);
-
-    // Then get exam rooms for those exams
-    const { data, error } = await supabase
-      .from("exam_room")
-      .select(
-        `
-        *,
-        room:room_id (
-          room_id,
-          room_number,
-          capacity,
-          rows,
-          cols
-        ),
-        exam:exam_id (
-          exam_id,
-          exam_name,
-          exam_date,
-          start_time,
-          end_time,
-          subject_code,
-          day_of_week
-        )
-      `,
-      )
-      .in("exam_id", examIds)
-      .order("exam.start_time", { ascending: true });
-
-    if (error) {
-      console.error("Error fetching exam rooms by date:", error);
-      return { success: false, error };
-    }
-
-    return { success: true, data: data as ExamRoomWithDetails[] };
-  } catch (error) {
-    console.error("Exception fetching exam rooms by date:", error);
-    return { success: false, error };
-  }
-};
-
-/**
- * NEW: Get exam room by ID with full details
+ * Get exam room by ID with full details
  */
 export const getExamRoomById = async (
   examRoomId: number,
@@ -547,15 +384,6 @@ export const getExamRoomById = async (
           capacity,
           rows,
           cols
-        ),
-        exam:exam_id (
-          exam_id,
-          exam_name,
-          exam_date,
-          start_time,
-          end_time,
-          subject_code,
-          day_of_week
         )
       `,
       )
@@ -575,239 +403,137 @@ export const getExamRoomById = async (
 };
 
 /**
- * NEW: Get active rooms grouped by date
- * Returns rooms that are active on each exam date based on their assigned groups
+ * ✅ NEW: Get rooms for a specific date by matching with exams
+ * This function finds all exam_rooms that have groups matching exams on the given date
  */
-export const getRoomsGroupedByDate = async (): Promise<{
+export const getRoomsByDate = async (
+  examDate: string,
+): Promise<{
   success: boolean;
   data?: Record<string, ExamRoomWithDetails[]>;
   error?: any;
 }> => {
   try {
-    // Get all exam rooms with details
-    const result = await getAllWithDetails();
-    if (!result.success || !result.data) {
-      return { success: false, error: result.error };
-    }
-
-    const examRooms = result.data;
-
-    // Get all exams to find date ranges for each group
-    const { data: allExams, error: examError } = await supabase
-      .from("exam")
-      .select("exam_date, year_level, semester, program, specialization")
-      .order("exam_date", { ascending: true });
-
-    if (examError) {
-      console.error("Error fetching all exams:", examError);
-      return { success: false, error: examError };
-    }
-
-    // Group rooms by date
-    const roomsByDate: Record<string, ExamRoomWithDetails[]> = {};
-
-    for (const examRoom of examRooms) {
-      // Find all dates for primary group
-      if (
-        examRoom.year_level_primary &&
-        examRoom.sem_primary &&
-        examRoom.program_primary
-      ) {
-        const primaryDates = allExams
-          .filter((e: any) =>
-            examMatchesAssignment(
-              e.year_level,
-              e.semester,
-              e.program,
-              e.specialization,
-              examRoom.year_level_primary!,
-              examRoom.sem_primary!,
-              examRoom.program_primary!,
-              examRoom.specialization_primary || null,
-            ),
-          )
-          .map((e: any) => e.exam_date);
-
-        // Get unique dates
-        const uniquePrimaryDates = [...new Set(primaryDates)];
-
-        // Add this exam room to each date
-        for (const date of uniquePrimaryDates) {
-          if (!roomsByDate[date]) {
-            roomsByDate[date] = [];
-          }
-          // Check if this room is already added for this date
-          const exists = roomsByDate[date].some(
-            (r) =>
-              r.room_id === examRoom.room_id &&
-              r.exam_room_id === examRoom.exam_room_id,
-          );
-          if (!exists) {
-            roomsByDate[date].push(examRoom);
-          }
-        }
-      }
-
-      // Find all dates for secondary group (if exists)
-      if (
-        examRoom.year_level_secondary &&
-        examRoom.sem_secondary &&
-        examRoom.program_secondary
-      ) {
-        const secondaryDates = allExams
-          .filter((e: any) =>
-            examMatchesAssignment(
-              e.year_level,
-              e.semester,
-              e.program,
-              e.specialization,
-              examRoom.year_level_secondary!,
-              examRoom.sem_secondary!,
-              examRoom.program_secondary!,
-              examRoom.specialization_secondary || null,
-            ),
-          )
-          .map((e: any) => e.exam_date);
-
-        // Get unique dates
-        const uniqueSecondaryDates = [...new Set(secondaryDates)];
-
-        // Add this exam room to each date
-        for (const date of uniqueSecondaryDates) {
-          if (!roomsByDate[date]) {
-            roomsByDate[date] = [];
-          }
-          // Check if this room is already added for this date
-          const exists = roomsByDate[date].some(
-            (r) =>
-              r.room_id === examRoom.room_id &&
-              r.exam_room_id === examRoom.exam_room_id,
-          );
-          if (!exists) {
-            roomsByDate[date].push(examRoom);
-          }
-        }
-      }
-    }
-
-    return { success: true, data: roomsByDate };
-  } catch (error) {
-    console.error("Exception grouping rooms by date:", error);
-    return { success: false, error };
-  }
-};
-
-/**
- * NEW: Get specific exam details for a room on a specific date
- * This shows what actual exam is happening in this room on this date
- */
-export const getRoomExamDetailsForDate = async (
-  roomId: number,
-  examDate: string,
-): Promise<{
-  success: boolean;
-  data?: {
-    primaryExam?: any;
-    secondaryExam?: any;
-  };
-  error?: any;
-}> => {
-  try {
-    // Get the exam room assignment for this room
-    const { data: examRoomData, error: examRoomError } = await supabase
-      .from("exam_room")
-      .select("*")
-      .eq("room_id", roomId);
-
-    if (examRoomError) {
-      console.error("Error fetching exam room:", examRoomError);
-      return { success: false, error: examRoomError };
-    }
-
-    if (!examRoomData || examRoomData.length === 0) {
-      return { success: true, data: {} };
-    }
-
-    const examRoom = examRoomData[0];
-
-    // Get exams for this date
+    // 1. Get all exams for this specific date
     const { data: examsOnDate, error: examError } = await supabase
       .from("exam")
       .select("*")
       .eq("exam_date", examDate);
 
     if (examError) {
-      console.error("Error fetching exams on date:", examError);
+      console.error("Error fetching exams by date:", examError);
       return { success: false, error: examError };
     }
 
-    // Find primary exam - match using cumulative semester logic
-    let primaryExam = null;
-    if (
-      examRoom.year_level_primary &&
-      examRoom.sem_primary &&
-      examRoom.program_primary
-    ) {
-      primaryExam = examsOnDate.find((e: any) =>
-        examMatchesAssignment(
-          e.year_level,
-          e.semester,
-          e.program,
-          e.specialization,
-          examRoom.year_level_primary,
-          examRoom.sem_primary,
-          examRoom.program_primary,
-          examRoom.specialization_primary || null,
-        ),
-      );
+    if (!examsOnDate || examsOnDate.length === 0) {
+      // No exams on this date
+      return { success: true, data: { [examDate]: [] } };
     }
 
-    // Find secondary exam - match using cumulative semester logic
-    let secondaryExam = null;
-    if (
-      examRoom.year_level_secondary &&
-      examRoom.sem_secondary &&
-      examRoom.program_secondary
-    ) {
-      secondaryExam = examsOnDate.find((e: any) =>
-        examMatchesAssignment(
-          e.year_level,
-          e.semester,
-          e.program,
-          e.specialization,
-          examRoom.year_level_secondary,
-          examRoom.sem_secondary,
-          examRoom.program_secondary,
-          examRoom.specialization_secondary || null,
-        ),
+    // 2. Get all exam room assignments with room details
+    const { data: allExamRooms, error: examRoomError } = await supabase
+      .from("exam_room")
+      .select(
+        `
+        *,
+        room:room_id (
+          room_id,
+          room_number,
+          capacity,
+          rows,
+          cols
+        )
+      `,
       );
+
+    if (examRoomError) {
+      console.error("Error fetching exam rooms:", examRoomError);
+      return { success: false, error: examRoomError };
+    }
+
+    if (!allExamRooms || allExamRooms.length === 0) {
+      return { success: true, data: { [examDate]: [] } };
+    }
+
+    // 3. Filter exam rooms that have groups matching exams on this date
+    const matchingRooms: ExamRoomWithDetails[] = [];
+
+    for (const examRoom of allExamRooms) {
+      let hasMatchingExam = false;
+
+      // Check if primary group matches any exam on this date
+      if (
+        examRoom.year_level_primary &&
+        examRoom.sem_primary &&
+        examRoom.program_primary
+      ) {
+        const primaryMatches = examsOnDate.some((exam: any) =>
+          examMatchesAssignment(
+            exam.year_level,
+            exam.semester,
+            exam.program,
+            exam.specialization,
+            examRoom.year_level_primary!,
+            examRoom.sem_primary!,
+            examRoom.program_primary!,
+            examRoom.specialization_primary || null,
+          ),
+        );
+
+        if (primaryMatches) {
+          hasMatchingExam = true;
+        }
+      }
+
+      // Check if secondary group matches any exam on this date
+      if (
+        examRoom.year_level_secondary &&
+        examRoom.sem_secondary &&
+        examRoom.program_secondary
+      ) {
+        const secondaryMatches = examsOnDate.some((exam: any) =>
+          examMatchesAssignment(
+            exam.year_level,
+            exam.semester,
+            exam.program,
+            exam.specialization,
+            examRoom.year_level_secondary!,
+            examRoom.sem_secondary!,
+            examRoom.program_secondary!,
+            examRoom.specialization_secondary || null,
+          ),
+        );
+
+        if (secondaryMatches) {
+          hasMatchingExam = true;
+        }
+      }
+
+      // If either group matches, add this room to the results
+      if (hasMatchingExam) {
+        matchingRooms.push(examRoom as ExamRoomWithDetails);
+      }
     }
 
     return {
       success: true,
-      data: {
-        primaryExam,
-        secondaryExam,
-      },
+      data: { [examDate]: matchingRooms },
     };
   } catch (error) {
-    console.error("Exception fetching room exam details:", error);
+    console.error("Exception getting rooms by date:", error);
     return { success: false, error };
   }
 };
 
-// NEW: Export as object for cleaner imports (optional, but recommended)
+// Export as object for cleaner imports
 export const examRoomQueries = {
   getAllWithDetails,
-  getExamRoomsByDate,
   getExamRoomById,
-  getRoomsGroupedByDate,
-  getRoomExamDetailsForDate,
+  getRoomsByDate, // ✅ NEW function
   getAll: getAllExamRoomAssignments,
-  getByExamId: getExamRoomAssignments,
   create: saveExamRoomAssignments,
   update: updateExamRoomAssignment,
   delete: deleteExamRoomAssignments,
-  isRoomAssigned: isRoomAssignedToExam,
+  isRoomAssigned: isRoomAssigned,
   getWithDetails: getExamRoomsWithDetails,
 };
