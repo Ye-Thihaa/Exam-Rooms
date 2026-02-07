@@ -19,6 +19,12 @@ import {
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
+  dynamicSeatingAssignment,
+  SeatingGrid,
+} from "@/services/dynamicSeatingAlgorithm";
+import { validateSeatingArrangement } from "@/services/dynamicSeatingAlgorithm";
+
+import {
   RefreshCw,
   Users,
   ArrowLeft,
@@ -57,7 +63,7 @@ interface ExamRoomDetails {
   program_secondary: string;
   specialization_secondary?: string;
   students_secondary: number;
-  stu_assigned?: boolean; // NEW FIELD
+  stu_assigned?: boolean;
   room: {
     room_id: number;
     room_number: string;
@@ -95,8 +101,8 @@ const SeatingGenerator: React.FC = () => {
   // Preview state
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isViewing, setIsViewing] = useState(false);
+  const [generatingRoomId, setGeneratingRoomId] = useState<number | null>(null);
+  const [viewingRoomId, setViewingRoomId] = useState<number | null>(null);
 
   useEffect(() => {
     loadExamRooms();
@@ -206,89 +212,153 @@ const SeatingGenerator: React.FC = () => {
   };
 
   /**
-   * Generate seating plan with real student data
+   * Convert algorithm SeatingGrid output to SeatAssignment format for UI
    */
-  const generateSeatingPlan = (
+  const convertAlgorithmResultToSeats = (
+    result: SeatingGrid,
     examRoom: ExamRoomDetails,
-    studentData: StudentData,
+    primaryStudentIds: Set<number>,
+    secondaryStudentIds: Set<number>,
   ): SeatAssignment[] => {
+    const seats: SeatAssignment[] = [];
+    const roomPrefix = examRoom.room.room_number.replace(/\s/g, "");
     const rows = examRoom.room.rows;
     const cols = examRoom.room.cols;
-    const seats: SeatAssignment[] = [];
-    const rowLabels = "ABCDEFGHIJKLMNOPQRST".split("").slice(0, rows);
 
-    const { primaryStudents, secondaryStudents } = studentData;
+    // Create a map of all assignments for quick lookup
+    const assignmentMap = new Map<string, (typeof result.assignments)[0]>();
+    result.assignments.forEach((assignment) => {
+      const key = `${assignment.row_label}-${assignment.column_number}`;
+      assignmentMap.set(key, assignment);
+    });
 
-    // Merge students in alternating pattern (zig-zag)
-    const allStudents: any[] = [];
-    let primaryIndex = 0;
-    let secondaryIndex = 0;
+    console.log(`Converting ${result.assignments.length} assignments to seats`);
+    console.log("Sample assignment:", result.assignments[0]);
 
-    while (
-      primaryIndex < primaryStudents.length ||
-      secondaryIndex < secondaryStudents.length
-    ) {
-      if (primaryIndex < primaryStudents.length) {
-        const student = primaryStudents[primaryIndex++];
-        allStudents.push({
-          id: student.student_id,
-          studentNumber: student.student_number,
-          name: student.name,
-          group: "primary",
-          groupLabel: `Y${examRoom.year_level_primary}-S${examRoom.sem_primary}-${examRoom.program_primary}${examRoom.specialization_primary ? ` (${examRoom.specialization_primary})` : ""}`,
-        });
-      }
-      if (secondaryIndex < secondaryStudents.length) {
-        const student = secondaryStudents[secondaryIndex++];
-        allStudents.push({
-          id: student.student_id,
-          studentNumber: student.student_number,
-          name: student.name,
-          group: "secondary",
-          groupLabel: `Y${examRoom.year_level_secondary}-S${examRoom.sem_secondary}-${examRoom.program_secondary}${examRoom.specialization_secondary ? ` (${examRoom.specialization_secondary})` : ""}`,
-        });
-      }
-    }
-
-    // Generate seats with zig-zag pattern
-    let studentIndex = 0;
-    const roomPrefix = examRoom.room.room_number.replace(/\s/g, "");
-
+    // Generate all seats row by row
     for (let rowIndex = 0; rowIndex < rows; rowIndex++) {
-      const isRightToLeft = rowIndex % 2 === 1;
-      const rowLabel = rowLabels[rowIndex];
+      const rowLabel =
+        result.rowLabels[rowIndex] || "ABCDEFGHIJKLMNOPQRST"[rowIndex];
 
-      for (let col = 0; col < cols; col++) {
-        const actualCol = isRightToLeft ? cols - 1 - col : col;
-        const seatIndex = rowIndex * cols + actualCol + 1;
-        const seatNumber = `${roomPrefix}-${seatIndex}`;
+      for (let colIndex = 0; colIndex < cols; colIndex++) {
+        const column = colIndex + 1;
+        const seatKey = `${rowLabel}-${column}`;
+        const assignment = assignmentMap.get(seatKey);
 
-        if (studentIndex < allStudents.length) {
-          const student = allStudents[studentIndex];
-          seats.push({
-            seatNumber,
-            row: rowLabel,
-            column: actualCol + 1,
-            isOccupied: true,
-            studentId: student.id,
-            studentNumber: student.studentNumber,
-            studentName: student.name,
-            studentGroup: student.groupLabel,
-          });
-          studentIndex++;
+        if (assignment) {
+          // Find the student in the grid
+          const student = result.grid[rowIndex]?.[colIndex];
+
+          if (student) {
+            // Determine if student is from primary or secondary group using the ID sets
+            const isPrimary = primaryStudentIds.has(student.student_id);
+
+            const groupLabel = isPrimary
+              ? `Y${examRoom.year_level_primary}-S${examRoom.sem_primary}-${examRoom.program_primary}${examRoom.specialization_primary ? ` (${examRoom.specialization_primary})` : ""}`
+              : `Y${examRoom.year_level_secondary}-S${examRoom.sem_secondary}-${examRoom.program_secondary}${examRoom.specialization_secondary ? ` (${examRoom.specialization_secondary})` : ""}`;
+
+            seats.push({
+              seatNumber: assignment.seat_number,
+              row: rowLabel,
+              column: column,
+              isOccupied: true,
+              studentId: student.student_id,
+              studentNumber: student.student_number,
+              studentName: student.name,
+              studentGroup: groupLabel,
+            });
+          } else {
+            // Assignment exists but no student (shouldn't happen)
+            seats.push({
+              seatNumber: assignment.seat_number,
+              row: rowLabel,
+              column: column,
+              isOccupied: false,
+            });
+          }
         } else {
-          // Empty seat
+          // No assignment for this seat - it's empty
+          const seatNumber = `${roomPrefix}-${rowIndex * cols + colIndex + 1}`;
           seats.push({
             seatNumber,
             row: rowLabel,
-            column: actualCol + 1,
+            column: column,
             isOccupied: false,
           });
         }
       }
     }
 
+    console.log(`Generated ${seats.length} total seats`);
+    console.log(`Occupied: ${seats.filter((s) => s.isOccupied).length}`);
+    console.log(
+      "Sample occupied seat:",
+      seats.find((s) => s.isOccupied),
+    );
+
     return seats;
+  };
+
+  /**
+   * Generate seating plan using the dynamic algorithm
+   */
+  const generateSeatingPlan = (
+    examRoom: ExamRoomDetails,
+    studentData: StudentData,
+  ): SeatAssignment[] => {
+    const { primaryStudents, secondaryStudents } = studentData;
+
+    console.log("Generating seating with:", {
+      primaryCount: primaryStudents.length,
+      secondaryCount: secondaryStudents.length,
+      cols: examRoom.room.cols,
+      rows: examRoom.room.rows,
+      capacity: examRoom.room.capacity,
+    });
+
+    // Use the dynamic seating algorithm
+    const result: SeatingGrid = dynamicSeatingAssignment(
+      primaryStudents,
+      secondaryStudents,
+      examRoom.room.cols,
+      examRoom.room.rows,
+      examRoom.exam_room_id,
+    );
+
+    console.log("Algorithm result:", {
+      gridRows: result.grid.length,
+      gridCols: result.grid[0]?.length,
+      assignmentsCount: result.assignments.length,
+      rowLabels: result.rowLabels,
+    });
+
+    console.log("First few assignments:", result.assignments.slice(0, 5));
+    console.log(
+      "Grid row 0:",
+      result.grid[0]?.map((s) => s?.student_number),
+    );
+
+    // Create ID sets for validation and conversion
+    const groupAIds = new Set(primaryStudents.map((s) => s.student_id));
+    const groupBIds = new Set(secondaryStudents.map((s) => s.student_id));
+
+    // Validate
+    const validation = validateSeatingArrangement(result, groupAIds, groupBIds);
+
+    if (!validation.valid) {
+      console.error("Seating validation errors:", validation.errors);
+      toast.error("Seating arrangement has validation errors");
+    } else {
+      console.log("✅ Seating arrangement validated successfully");
+    }
+
+    // Convert algorithm output to SeatAssignment format
+    return convertAlgorithmResultToSeats(
+      result,
+      examRoom,
+      groupAIds,
+      groupBIds,
+    );
   };
 
   /**
@@ -304,24 +374,38 @@ const SeatingGenerator: React.FC = () => {
     const rowLabels = "ABCDEFGHIJKLMNOPQRST".split("").slice(0, rows);
     const roomPrefix = roomNumber.replace(/\s/g, "");
 
+    console.log("=== convertSeatingAssignmentsToSeats DEBUG ===");
+    console.log("Assignments received:", assignments.length);
+    console.log("Room dimensions:", rows, "x", cols);
+    console.log("Room number:", roomNumber, "Prefix:", roomPrefix);
+    console.log("Sample assignment:", assignments[0]);
+
+    // Create a map for quick lookup by row_label and column_number
+    const assignmentMap = new Map<string, SeatingAssignmentWithStudent>();
+    assignments.forEach((assignment) => {
+      const key = `${assignment.row_label}-${assignment.column_number}`;
+      assignmentMap.set(key, assignment);
+    });
+
+    console.log("Assignment map size:", assignmentMap.size);
+    console.log(
+      "First few map keys:",
+      Array.from(assignmentMap.keys()).slice(0, 5),
+    );
+
     // Create all seats
     for (let rowIndex = 0; rowIndex < rows; rowIndex++) {
       const rowLabel = rowLabels[rowIndex];
 
-      for (let col = 0; col < cols; col++) {
-        const seatIndex = rowIndex * cols + col + 1;
-        const seatNumber = `${roomPrefix}-${seatIndex}`;
-
-        // Find assignment for this seat
-        const assignment = assignments.find(
-          (a) => a.seat_number === seatNumber,
-        );
+      for (let col = 1; col <= cols; col++) {
+        const mapKey = `${rowLabel}-${col}`;
+        const assignment = assignmentMap.get(mapKey);
 
         if (assignment && assignment.student) {
           seats.push({
-            seatNumber,
-            row: rowLabel,
-            column: col + 1,
+            seatNumber: assignment.seat_number,
+            row: assignment.row_label,
+            column: assignment.column_number,
             isOccupied: true,
             studentId: assignment.student.student_id,
             studentNumber: assignment.student.student_number,
@@ -329,15 +413,26 @@ const SeatingGenerator: React.FC = () => {
             studentGroup: `Y${assignment.student.year_level}-S${assignment.student.sem}-${assignment.student.major}${assignment.student.specialization ? ` (${assignment.student.specialization})` : ""}`,
           });
         } else {
+          // Empty seat
+          const seatIndex = rowIndex * cols + (col - 1) + 1;
+          const seatNumber = `${roomPrefix}-${seatIndex}`;
           seats.push({
             seatNumber,
             row: rowLabel,
-            column: col + 1,
+            column: col,
             isOccupied: false,
           });
         }
       }
     }
+
+    console.log("Total seats created:", seats.length);
+    console.log("Occupied seats:", seats.filter((s) => s.isOccupied).length);
+    console.log(
+      "Sample occupied seat:",
+      seats.find((s) => s.isOccupied),
+    );
+    console.log("=== END DEBUG ===");
 
     return seats;
   };
@@ -347,7 +442,7 @@ const SeatingGenerator: React.FC = () => {
    */
   const handleViewSeatingPlan = async (examRoom: ExamRoomDetails) => {
     try {
-      setIsViewing(true);
+      setViewingRoomId(examRoom.exam_room_id);
 
       // Fetch existing seating assignments
       const result = await getSeatingAssignmentsByExamRoom(
@@ -356,8 +451,12 @@ const SeatingGenerator: React.FC = () => {
 
       if (!result.success || !result.data) {
         toast.error("Failed to load seating assignments");
+        setViewingRoomId(null);
         return;
       }
+
+      console.log("Fetched seating assignments:", result.data);
+      console.log("Number of assignments:", result.data.length);
 
       // Convert seating assignments to SeatAssignment format
       const seats = convertSeatingAssignmentsToSeats(
@@ -367,6 +466,65 @@ const SeatingGenerator: React.FC = () => {
         examRoom.room.room_number,
       );
 
+      console.log("Converted seats:", seats);
+      console.log("Occupied seats:", seats.filter((s) => s.isOccupied).length);
+      console.log(
+        "Sample occupied seat:",
+        seats.find((s) => s.isOccupied),
+      );
+
+      // Extract students from assignments and separate them into groups
+      const assignedStudents = result.data
+        .filter((a) => a.student)
+        .map((a) => a.student);
+
+      // Map program display names back to database values for comparison
+      const getProgramCode = (displayName: string): string => {
+        const mapping: Record<string, string> = {
+          "Computer Science and Technology": "CST",
+          "Computer Science": "CS",
+          "Computer Technology": "CT",
+        };
+        return mapping[displayName] || displayName;
+      };
+
+      const primaryProgram = getProgramCode(examRoom.program_primary);
+      const secondaryProgram = getProgramCode(examRoom.program_secondary);
+
+      // Separate students into primary and secondary groups based on their attributes
+      const primaryStudents = assignedStudents.filter((student) => {
+        return (
+          student.year_level === parseInt(examRoom.year_level_primary) &&
+          student.sem === parseInt(examRoom.sem_primary) &&
+          student.major === primaryProgram &&
+          (examRoom.specialization_primary
+            ? student.specialization === examRoom.specialization_primary
+            : true)
+        );
+      });
+
+      const secondaryStudents = assignedStudents.filter((student) => {
+        return (
+          student.year_level === parseInt(examRoom.year_level_secondary) &&
+          student.sem === parseInt(examRoom.sem_secondary) &&
+          student.major === secondaryProgram &&
+          (examRoom.specialization_secondary
+            ? student.specialization === examRoom.specialization_secondary
+            : true)
+        );
+      });
+
+      console.log("Separated students:", {
+        primary: primaryStudents.length,
+        secondary: secondaryStudents.length,
+        total: assignedStudents.length,
+      });
+
+      setStudentData({
+        primaryStudents,
+        secondaryStudents,
+      });
+
       setSelectedExamRoom(examRoom);
       setGeneratedSeats(seats);
       setShowSeatingPlan(true);
@@ -375,7 +533,7 @@ const SeatingGenerator: React.FC = () => {
       console.error("Error loading seating plan:", error);
       toast.error("Failed to load seating plan");
     } finally {
-      setIsViewing(false);
+      setViewingRoomId(null);
     }
   };
 
@@ -390,7 +548,7 @@ const SeatingGenerator: React.FC = () => {
     if (!confirmed) return;
 
     try {
-      setIsGenerating(true);
+      setGeneratingRoomId(examRoom.exam_room_id);
 
       // Clear existing assignments (trigger will set stu_assigned to false)
       await clearSeatingAssignments(examRoom.exam_room_id);
@@ -405,7 +563,7 @@ const SeatingGenerator: React.FC = () => {
       console.error("Error regenerating seating plan:", error);
       toast.error("Failed to regenerate seating plan");
     } finally {
-      setIsGenerating(false);
+      setGeneratingRoomId(null);
     }
   };
 
@@ -413,7 +571,7 @@ const SeatingGenerator: React.FC = () => {
    * Handle generate seating plan - fetch students and show preview
    */
   const handleGenerateSeatingPlan = async (examRoom: ExamRoomDetails) => {
-    setIsGenerating(true);
+    setGeneratingRoomId(examRoom.exam_room_id);
     try {
       // Check if this exam room already has seating assignments
       const existingCheck = await checkExistingSeatingAssignments(
@@ -426,7 +584,7 @@ const SeatingGenerator: React.FC = () => {
         );
 
         if (!confirmed) {
-          setIsGenerating(false);
+          setGeneratingRoomId(null);
           return;
         }
 
@@ -439,7 +597,7 @@ const SeatingGenerator: React.FC = () => {
       const students = await fetchStudentsForGroups(examRoom);
 
       if (!students) {
-        setIsGenerating(false);
+        setGeneratingRoomId(null);
         return;
       }
 
@@ -449,7 +607,7 @@ const SeatingGenerator: React.FC = () => {
         students.secondaryStudents.length === 0
       ) {
         toast.error("No unassigned students found for these groups");
-        setIsGenerating(false);
+        setGeneratingRoomId(null);
         return;
       }
 
@@ -466,7 +624,7 @@ const SeatingGenerator: React.FC = () => {
       console.error("Error generating seating plan:", error);
       toast.error("Failed to generate seating plan");
     } finally {
-      setIsGenerating(false);
+      setGeneratingRoomId(null);
     }
   };
 
@@ -565,7 +723,7 @@ const SeatingGenerator: React.FC = () => {
         seat.studentNumber || "N/A",
         seat.studentName || "N/A",
         seat.studentGroup || "N/A",
-        seat.isOccupied ? "Occupied" : "Empty",
+        seat.isOccupied ? "Assigned" : "Vacant",
       ]);
 
       const csvContent = [
@@ -645,7 +803,7 @@ const SeatingGenerator: React.FC = () => {
                   </span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Occupied:</span>
+                  <span className="text-muted-foreground">Assigned:</span>
                   <span className="ml-2 font-medium">{occupiedSeats}</span>
                 </div>
               </div>
@@ -655,40 +813,28 @@ const SeatingGenerator: React.FC = () => {
             <Card className="p-4">
               <h3 className="font-semibold mb-3">Student Groups</h3>
               <div className="space-y-3">
-                <div className="flex items-center justify-between p-2 bg-blue-50 rounded">
-                  <div>
-                    <div className="text-sm font-medium">Primary Group</div>
-                    <div className="text-xs text-muted-foreground">
-                      Y{selectedExamRoom.year_level_primary}-S
-                      {selectedExamRoom.sem_primary}-
-                      {selectedExamRoom.program_primary}
-                      {selectedExamRoom.specialization_primary && (
-                        <> ({selectedExamRoom.specialization_primary})</>
-                      )}
-                    </div>
+                <div className="p-2 bg-blue-50 rounded">
+                  <div className="text-sm font-medium">Primary Group</div>
+                  <div className="text-xs text-muted-foreground">
+                    Y{selectedExamRoom.year_level_primary}-S
+                    {selectedExamRoom.sem_primary}-
+                    {selectedExamRoom.program_primary}
+                    {selectedExamRoom.specialization_primary && (
+                      <> ({selectedExamRoom.specialization_primary})</>
+                    )}
                   </div>
-                  <Badge variant="secondary">
-                    {primaryAssigned} / {selectedExamRoom.students_primary}{" "}
-                    students
-                  </Badge>
                 </div>
 
-                <div className="flex items-center justify-between p-2 bg-green-50 rounded">
-                  <div>
-                    <div className="text-sm font-medium">Secondary Group</div>
-                    <div className="text-xs text-muted-foreground">
-                      Y{selectedExamRoom.year_level_secondary}-S
-                      {selectedExamRoom.sem_secondary}-
-                      {selectedExamRoom.program_secondary}
-                      {selectedExamRoom.specialization_secondary && (
-                        <> ({selectedExamRoom.specialization_secondary})</>
-                      )}
-                    </div>
+                <div className="p-2 bg-green-50 rounded">
+                  <div className="text-sm font-medium">Secondary Group</div>
+                  <div className="text-xs text-muted-foreground">
+                    Y{selectedExamRoom.year_level_secondary}-S
+                    {selectedExamRoom.sem_secondary}-
+                    {selectedExamRoom.program_secondary}
+                    {selectedExamRoom.specialization_secondary && (
+                      <> ({selectedExamRoom.specialization_secondary})</>
+                    )}
                   </div>
-                  <Badge variant="secondary">
-                    {secondaryAssigned} / {selectedExamRoom.students_secondary}{" "}
-                    students
-                  </Badge>
                 </div>
               </div>
             </Card>
@@ -801,7 +947,7 @@ const SeatingGenerator: React.FC = () => {
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Occupied</span>
+                  <span className="text-muted-foreground">Assigned</span>
                   <span className="font-medium text-primary">
                     {occupiedSeats}
                   </span>
@@ -813,11 +959,8 @@ const SeatingGenerator: React.FC = () => {
               <h3 className="font-semibold mb-3">Student Groups</h3>
               <div className="space-y-3 text-sm">
                 <div>
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="mb-1">
                     <span className="text-muted-foreground">Primary</span>
-                    <Badge variant="secondary" className="text-xs">
-                      {studentData?.primaryStudents.length || 0}
-                    </Badge>
                   </div>
                   <p className="text-xs">
                     Y{selectedExamRoom.year_level_primary}-S
@@ -832,11 +975,8 @@ const SeatingGenerator: React.FC = () => {
                   </p>
                 </div>
                 <div>
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="mb-1">
                     <span className="text-muted-foreground">Secondary</span>
-                    <Badge variant="secondary" className="text-xs">
-                      {studentData?.secondaryStudents.length || 0}
-                    </Badge>
                   </div>
                   <p className="text-xs">
                     Y{selectedExamRoom.year_level_secondary}-S
@@ -859,8 +999,9 @@ const SeatingGenerator: React.FC = () => {
                 <span className="font-medium text-foreground">
                   Zig-Zag Pattern:
                 </span>{" "}
-                Students are arranged in alternating rows (left-to-right, then
-                right-to-left) with primary and secondary groups interleaved.
+                Students are arranged with primary and secondary groups
+                alternating in a checkerboard pattern, distributed evenly across
+                the room using band-based selection.
               </p>
             </Card>
           </div>
@@ -1081,9 +1222,9 @@ const SeatingGenerator: React.FC = () => {
                       size="sm"
                       variant="outline"
                       onClick={() => handleViewSeatingPlan(examRoom)}
-                      disabled={isViewing}
+                      disabled={viewingRoomId === examRoom.exam_room_id}
                     >
-                      {isViewing ? (
+                      {viewingRoomId === examRoom.exam_room_id ? (
                         <>
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                           Loading...
@@ -1100,9 +1241,9 @@ const SeatingGenerator: React.FC = () => {
                       size="sm"
                       variant="destructive"
                       onClick={() => handleRegenerateSeatingPlan(examRoom)}
-                      disabled={isGenerating}
+                      disabled={generatingRoomId === examRoom.exam_room_id}
                     >
-                      {isGenerating ? (
+                      {generatingRoomId === examRoom.exam_room_id ? (
                         <>
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                           Regenerating...
@@ -1120,9 +1261,9 @@ const SeatingGenerator: React.FC = () => {
                     className="w-full mt-4"
                     size="sm"
                     onClick={() => handleGenerateSeatingPlan(examRoom)}
-                    disabled={isGenerating}
+                    disabled={generatingRoomId === examRoom.exam_room_id}
                   >
-                    {isGenerating ? (
+                    {generatingRoomId === examRoom.exam_room_id ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                         Generating...

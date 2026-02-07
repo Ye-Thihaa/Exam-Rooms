@@ -1,8 +1,12 @@
 // components/shared/SeatingPlanGrid.tsx
 
-import React from "react";
+import React, { useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
 interface SeatAssignment {
   seatNumber: string;
@@ -30,6 +34,7 @@ const SeatingPlanGrid: React.FC<SeatingPlanGridProps> = ({
   roomName,
   seatPrefix = "",
 }) => {
+  const seatingRef = useRef<HTMLDivElement>(null);
   const rowLabels = "ABCDEFGHIJKLMNOPQRST".split("").slice(0, rows);
 
   // Create a lookup map for quick access
@@ -39,148 +44,171 @@ const SeatingPlanGrid: React.FC<SeatingPlanGridProps> = ({
     seatMap.set(key, seat);
   });
 
+  const assignedCount = seats.filter((s) => s.isOccupied).length;
+
+  /**
+   * Export seating plan to PDF
+   */
+  const handleExportToPDF = async () => {
+    if (!seatingRef.current) return;
+
+    try {
+      // Hide the export button temporarily
+      const exportButton = document.getElementById("pdf-export-button");
+      if (exportButton) exportButton.style.display = "none";
+
+      // Capture the seating plan as canvas
+      const canvas = await html2canvas(seatingRef.current, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+      });
+
+      // Show the button again
+      if (exportButton) exportButton.style.display = "";
+
+      // Calculate PDF dimensions
+      const imgWidth = 210; // A4 width in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      // Create PDF
+      const pdf = new jsPDF({
+        orientation: imgHeight > imgWidth ? "portrait" : "landscape",
+        unit: "mm",
+        format: "a4",
+      });
+
+      // Add the image to PDF
+      const imgData = canvas.toDataURL("image/png");
+      pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight);
+
+      // Save the PDF with simplified filename: roomno.pdf
+      pdf.save(`${roomName}.pdf`);
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      {/* Room Header */}
-      <div className="text-center mb-6">
-        <h2 className="text-2xl font-bold mb-2">Room {roomName}</h2>
-        <Badge variant="outline" className="text-sm">
-          {seats.filter((s) => s.isOccupied).length} / {seats.length} seats
-          occupied
-        </Badge>
+      {/* Export Button */}
+      <div className="flex justify-end mb-4">
+        <Button
+          id="pdf-export-button"
+          variant="outline"
+          size="sm"
+          onClick={handleExportToPDF}
+        >
+          <Download className="h-4 w-4 mr-2" />
+          Export to PDF
+        </Button>
       </div>
 
-      {/* Front of Room Indicator */}
-      <div className="border-2 border-dashed border-gray-300 rounded-lg p-3 text-center bg-gray-50">
-        <span className="text-sm font-medium text-gray-600">FRONT OF ROOM</span>
-      </div>
+      {/* Seating Plan Content */}
+      <div ref={seatingRef} className="bg-white p-8">
+        {/* Room Header */}
+        <div className="text-center mb-8 pb-4 border-b-2 border-gray-800">
+          <h1 className="text-3xl font-bold mb-2">EXAMINATION SEATING PLAN</h1>
+          <h2 className="text-2xl font-semibold mb-2">Room {roomName}</h2>
+        </div>
 
-      {/* Seating Grid */}
-      <div className="space-y-3">
-        {rowLabels.map((rowLabel, rowIndex) => (
-          <div key={rowLabel} className="flex items-center gap-2">
-            {/* Row Label */}
-            <div className="w-8 h-20 flex items-center justify-center">
-              <span className="font-bold text-lg text-gray-700">
-                {rowLabel}
-              </span>
-            </div>
+        {/* Front of Room Indicator */}
+        <div className="border-2 border-gray-800 rounded-lg p-4 text-center bg-gray-100 mb-6">
+          <span className="text-lg font-bold text-gray-800">
+            ▼ FRONT OF EXAMINATION ROOM ▼
+          </span>
+        </div>
 
-            {/* Seats in this row */}
+        {/* Seating Grid */}
+        <div className="space-y-3 mb-6">
+          {/* Column headers */}
+          <div className="flex items-center gap-2 justify-center mb-2">
+            <div className="w-8"></div> {/* Spacer for row labels */}
             <div
-              className="flex-1 grid gap-2"
+              className="grid gap-2"
               style={{
                 gridTemplateColumns: `repeat(${seatsPerRow}, minmax(0, 1fr))`,
               }}
             >
-              {Array.from({ length: seatsPerRow }, (_, colIndex) => {
-                const column = colIndex + 1;
-                const seatKey = `${rowLabel}-${column}`;
-                const seat = seatMap.get(seatKey);
+              {Array.from({ length: seatsPerRow }, (_, i) => (
+                <div
+                  key={i}
+                  className="text-center text-xs font-medium text-gray-500"
+                  style={{ width: "120px" }}
+                >
+                  {i + 1}
+                </div>
+              ))}
+            </div>
+          </div>
 
-                if (!seat) {
+          {rowLabels.map((rowLabel, rowIndex) => (
+            <div
+              key={rowLabel}
+              className="flex items-center gap-2 justify-center"
+            >
+              {/* Row label */}
+              <div className="w-8 text-center text-sm font-medium text-gray-500">
+                {rowLabel}
+              </div>
+
+              {/* Seats in this row */}
+              <div
+                className="grid gap-2"
+                style={{
+                  gridTemplateColumns: `repeat(${seatsPerRow}, minmax(0, 1fr))`,
+                }}
+              >
+                {Array.from({ length: seatsPerRow }, (_, colIndex) => {
+                  const column = colIndex + 1;
+                  const seatKey = `${rowLabel}-${column}`;
+                  const seat = seatMap.get(seatKey);
+
+                  if (!seat) {
+                    return (
+                      <div
+                        key={colIndex}
+                        className="aspect-square rounded border-2 border-gray-300 bg-gray-50 flex items-center justify-center"
+                        style={{ width: "120px", height: "120px" }}
+                      >
+                        <span className="text-xs text-gray-400">—</span>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div
                       key={colIndex}
-                      className="aspect-square rounded-lg border-2 border-dashed border-gray-300 bg-gray-100 flex items-center justify-center"
+                      className={`p-3 flex flex-col items-center justify-center rounded border-2 relative ${
+                        seat.isOccupied
+                          ? "border-gray-800 bg-white"
+                          : "border-gray-300 bg-gray-50"
+                      }`}
+                      style={{ width: "120px", height: "120px" }}
                     >
-                      <span className="text-xs text-gray-400">N/A</span>
+                      {/* Seat position label (subtle, in corner) */}
+                      <span className="absolute top-1 left-1 text-[10px] text-gray-400">
+                        {rowLabel}
+                        {column}
+                      </span>
+
+                      {seat.isOccupied && seat.studentNumber ? (
+                        <>
+                          <span className="font-bold text-sm leading-tight text-center break-all">
+                            {seat.studentNumber}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
                     </div>
                   );
-                }
-
-                return (
-                  <Card
-                    key={colIndex}
-                    className={`aspect-square p-2 flex flex-col items-center justify-center transition-all hover:shadow-md cursor-pointer ${
-                      seat.isOccupied
-                        ? "bg-teal-600 text-white hover:bg-teal-700"
-                        : "bg-white text-gray-400 border-2 border-dashed border-gray-300"
-                    }`}
-                    title={
-                      seat.isOccupied
-                        ? `${seat.studentNumber}\n${seat.studentName}\n${seat.studentGroup}`
-                        : "Empty Seat"
-                    }
-                  >
-                    {seat.isOccupied ? (
-                      <>
-                        <span className="font-bold text-xs mb-1 truncate w-full text-center">
-                          {seat.studentNumber}
-                        </span>
-                        <span className="text-[10px] opacity-90 truncate w-full text-center">
-                          {seat.studentName?.split(" ")[0]}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-sm font-medium">Empty</span>
-                    )}
-                  </Card>
-                );
-              })}
-            </div>
-
-            {/* Column Numbers (on the right) */}
-            <div className="w-8 h-20 flex items-center justify-center">
-              <span className="font-bold text-lg text-gray-700">
-                {rowLabel}
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Column Number Labels */}
-      <div className="flex items-center gap-2">
-        <div className="w-8"></div>
-        <div
-          className="flex-1 grid gap-2"
-          style={{
-            gridTemplateColumns: `repeat(${seatsPerRow}, minmax(0, 1fr))`,
-          }}
-        >
-          {Array.from({ length: seatsPerRow }, (_, i) => (
-            <div
-              key={i}
-              className="text-center text-sm font-semibold text-gray-600"
-            >
-              {i + 1}
+                })}
+              </div>
             </div>
           ))}
         </div>
-        <div className="w-8"></div>
-      </div>
-
-      {/* Legend */}
-      <div className="flex items-center justify-center gap-6 mt-8 p-4 bg-gray-50 rounded-lg">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded bg-teal-600"></div>
-          <span className="text-sm font-medium">Occupied</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded border-2 border-dashed border-gray-300 bg-white"></div>
-          <span className="text-sm font-medium">Empty</span>
-        </div>
-      </div>
-
-      {/* Stats Summary */}
-      <div className="grid grid-cols-3 gap-4 mt-6">
-        <Card className="p-4 text-center">
-          <div className="text-2xl font-bold text-teal-600">
-            {seats.filter((s) => s.isOccupied).length}
-          </div>
-          <div className="text-sm text-gray-600">Occupied Seats</div>
-        </Card>
-        <Card className="p-4 text-center">
-          <div className="text-2xl font-bold text-gray-400">
-            {seats.filter((s) => !s.isOccupied).length}
-          </div>
-          <div className="text-sm text-gray-600">Empty Seats</div>
-        </Card>
-        <Card className="p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">{seats.length}</div>
-          <div className="text-sm text-gray-600">Total Capacity</div>
-        </Card>
       </div>
     </div>
   );
