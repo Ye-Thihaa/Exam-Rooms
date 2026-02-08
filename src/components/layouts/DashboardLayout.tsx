@@ -63,6 +63,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "Teacher Assignments",
       path: "/exam-officer/teacher-assignments",
     },
+    {
+      icon: BookOpen,
+      label: "Teacher ",
+      path: "/exam-officer/teacher-view",
+    },
   ],
   invigilator: [
     { icon: LayoutDashboard, label: "Dashboard", path: "/invigilator" },
