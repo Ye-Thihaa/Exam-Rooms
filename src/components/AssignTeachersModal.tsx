@@ -13,7 +13,7 @@ import { teacherQueries, Teacher } from "@/services/teacherQueries";
 import {
   teacherAssignmentQueries,
   TeacherAssignmentWithDetails,
-} from "@/services/teacherAssignmentQueries";
+} from "@/services/teacherassignmentQueries";
 
 interface AssignTeachersModalProps {
   examRoomId: number;
@@ -112,7 +112,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
   const handleUpdateAssignment = (
     index: number,
     field: keyof AssignmentForm,
-    value: any
+    value: any,
   ) => {
     const updated = [...newAssignments];
     updated[index] = { ...updated[index], [field]: value };
@@ -126,7 +126,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
     try {
       await teacherAssignmentQueries.delete(assignmentId);
       setExistingAssignments(
-        existingAssignments.filter((a) => a.assignment_id !== assignmentId)
+        existingAssignments.filter((a) => a.assignment_id !== assignmentId),
       );
     } catch (err: any) {
       setError(err.message || "Failed to delete assignment");
@@ -137,7 +137,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
   const handleSave = async () => {
     // Validate
     const invalidAssignments = newAssignments.filter(
-      (a) => !a.teacher_id || !a.role || !a.shift_start || !a.shift_end
+      (a) => !a.teacher_id || !a.role || !a.shift_start || !a.shift_end,
     );
 
     if (invalidAssignments.length > 0) {
@@ -196,7 +196,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
   ]);
 
   const availableTeachers = teachers.filter(
-    (t) => !assignedTeacherIds.has(t.teacher_id)
+    (t) => !assignedTeacherIds.has(t.teacher_id),
   );
 
   return (
@@ -343,7 +343,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                                 handleUpdateAssignment(
                                   index,
                                   "teacher_id",
-                                  parseInt(e.target.value)
+                                  parseInt(e.target.value),
                                 )
                               }
                               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
@@ -353,7 +353,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                                 .filter(
                                   (t) =>
                                     !assignedTeacherIds.has(t.teacher_id) ||
-                                    t.teacher_id === assignment.teacher_id
+                                    t.teacher_id === assignment.teacher_id,
                                 )
                                 .map((teacher) => (
                                   <option
@@ -378,7 +378,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                                 handleUpdateAssignment(
                                   index,
                                   "role",
-                                  e.target.value as InvigilatorRole
+                                  e.target.value as InvigilatorRole,
                                 )
                               }
                               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
@@ -403,7 +403,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                                 handleUpdateAssignment(
                                   index,
                                   "shift_start",
-                                  e.target.value + ":00"
+                                  e.target.value + ":00",
                                 )
                               }
                               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
@@ -422,7 +422,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                                 handleUpdateAssignment(
                                   index,
                                   "shift_end",
-                                  e.target.value + ":00"
+                                  e.target.value + ":00",
                                 )
                               }
                               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
@@ -472,7 +472,9 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
             onClick={handleSave}
             disabled={saving || newAssignments.length === 0}
           >
-            {saving ? "Saving..." : `Save ${newAssignments.length} Assignment${newAssignments.length !== 1 ? "s" : ""}`}
+            {saving
+              ? "Saving..."
+              : `Save ${newAssignments.length} Assignment${newAssignments.length !== 1 ? "s" : ""}`}
           </Button>
         </div>
       </div>
