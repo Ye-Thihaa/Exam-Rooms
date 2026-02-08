@@ -26,6 +26,7 @@ import RoomAssignment from "./pages/exam-officer/RoomAssignment";
 import SeatingGenerator from "./pages/exam-officer/SeatingGenerator";
 import ExamSchedule from "./pages/exam-officer/Examschedule";
 import RoomManagement from "./pages/exam-officer/RoomManagement";
+import TeacherView from "./pages/exam-officer/TeacherView"
 // Invigilator Pages
 import InvigilatorDashboard from "./pages/invigilator/InvigilatorDashboard";
 import AssignedExams from "./pages/invigilator/AssignedExams";
@@ -135,6 +136,14 @@ const App = () => (
               element={
                 <ProtectedRoute allowedRoles={["exam_officer"]}>
                   <ExamsOverview />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/exam-officer/teacher-view"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <TeacherView />
                 </ProtectedRoute>
               }
             />
