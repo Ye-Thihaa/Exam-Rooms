@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Exam } from './examQueries';
+import React, { useState, useEffect } from "react";
+import { Exam } from "@/services/examQueries";
 
 interface FilterState {
   program?: string;
@@ -27,16 +27,20 @@ export const ExamFilters: React.FC<ExamFiltersProps> = ({
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Extract unique values from exams
-  const uniquePrograms = [...new Set(exams.map(e => e.program))].sort();
-  const uniqueYearLevels = [...new Set(exams.map(e => e.year_level))].sort();
-  const uniqueSpecializations = [...new Set(exams.map(e => e.specialization).filter(Boolean))].sort();
-  const uniqueSemesters = [...new Set(exams.map(e => e.semester))].sort();
-  const uniqueAcademicYears = [...new Set(exams.map(e => e.academic_year))].sort();
-  const uniqueSessions = [...new Set(exams.map(e => e.session))].sort();
+  const uniquePrograms = [...new Set(exams.map((e) => e.program))].sort();
+  const uniqueYearLevels = [...new Set(exams.map((e) => e.year_level))].sort();
+  const uniqueSpecializations = [
+    ...new Set(exams.map((e) => e.specialization).filter(Boolean)),
+  ].sort();
+  const uniqueSemesters = [...new Set(exams.map((e) => e.semester))].sort();
+  const uniqueAcademicYears = [
+    ...new Set(exams.map((e) => e.academic_year)),
+  ].sort();
+  const uniqueSessions = [...new Set(exams.map((e) => e.session))].sort();
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {
     const newFilters = { ...filters };
-    if (value === '') {
+    if (value === "") {
       delete newFilters[key];
     } else {
       newFilters[key] = value;
@@ -44,8 +48,8 @@ export const ExamFilters: React.FC<ExamFiltersProps> = ({
     onFilterChange(newFilters);
   };
 
-  const activeFilterCount = Object.keys(filters).filter(key => 
-    key !== 'searchTerm' || filters.searchTerm
+  const activeFilterCount = Object.keys(filters).filter(
+    (key) => key !== "searchTerm" || filters.searchTerm,
   ).length;
 
   return (
@@ -75,12 +79,17 @@ export const ExamFilters: React.FC<ExamFiltersProps> = ({
               className="p-2 hover:bg-gray-100 rounded-lg transition"
             >
               <svg
-                className={`w-5 h-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                className={`w-5 h-5 transition-transform ${isExpanded ? "rotate-180" : ""}`}
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 9l-7 7-7-7"
+                />
               </svg>
             </button>
           </div>
@@ -93,8 +102,8 @@ export const ExamFilters: React.FC<ExamFiltersProps> = ({
           <input
             type="text"
             placeholder="Search by course name or subject code..."
-            value={filters.searchTerm || ''}
-            onChange={(e) => handleFilterChange('searchTerm', e.target.value)}
+            value={filters.searchTerm || ""}
+            onChange={(e) => handleFilterChange("searchTerm", e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
           <svg
@@ -103,7 +112,12 @@ export const ExamFilters: React.FC<ExamFiltersProps> = ({
             viewBox="0 0 24 24"
             stroke="currentColor"
           >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
           </svg>
         </div>
       </div>
@@ -117,12 +131,12 @@ export const ExamFilters: React.FC<ExamFiltersProps> = ({
               Program
             </label>
             <select
-              value={filters.program || ''}
-              onChange={(e) => handleFilterChange('program', e.target.value)}
+              value={filters.program || ""}
+              onChange={(e) => handleFilterChange("program", e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">All Programs</option>
-              {uniquePrograms.map(program => (
+              {uniquePrograms.map((program) => (
                 <option key={program} value={program}>
                   {program}
                 </option>
@@ -136,12 +150,12 @@ export const ExamFilters: React.FC<ExamFiltersProps> = ({
               Year Level
             </label>
             <select
-              value={filters.yearLevel || ''}
-              onChange={(e) => handleFilterChange('yearLevel', e.target.value)}
+              value={filters.yearLevel || ""}
+              onChange={(e) => handleFilterChange("yearLevel", e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">All Year Levels</option>
-              {uniqueYearLevels.map(year => (
+              {uniqueYearLevels.map((year) => (
                 <option key={year} value={year}>
                   {year}
                 </option>
@@ -155,12 +169,12 @@ export const ExamFilters: React.FC<ExamFiltersProps> = ({
               Semester
             </label>
             <select
-              value={filters.semester || ''}
-              onChange={(e) => handleFilterChange('semester', e.target.value)}
+              value={filters.semester || ""}
+              onChange={(e) => handleFilterChange("semester", e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">All Semesters</option>
-              {uniqueSemesters.map(semester => (
+              {uniqueSemesters.map((semester) => (
                 <option key={semester} value={semester}>
                   {semester}
                 </option>
@@ -174,12 +188,14 @@ export const ExamFilters: React.FC<ExamFiltersProps> = ({
               Academic Year
             </label>
             <select
-              value={filters.academicYear || ''}
-              onChange={(e) => handleFilterChange('academicYear', e.target.value)}
+              value={filters.academicYear || ""}
+              onChange={(e) =>
+                handleFilterChange("academicYear", e.target.value)
+              }
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">All Academic Years</option>
-              {uniqueAcademicYears.map(year => (
+              {uniqueAcademicYears.map((year) => (
                 <option key={year} value={year}>
                   {year}
                 </option>
@@ -193,12 +209,12 @@ export const ExamFilters: React.FC<ExamFiltersProps> = ({
               Session
             </label>
             <select
-              value={filters.session || ''}
-              onChange={(e) => handleFilterChange('session', e.target.value)}
+              value={filters.session || ""}
+              onChange={(e) => handleFilterChange("session", e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">All Sessions</option>
-              {uniqueSessions.map(session => (
+              {uniqueSessions.map((session) => (
                 <option key={session} value={session}>
                   {session}
                 </option>
@@ -213,12 +229,14 @@ export const ExamFilters: React.FC<ExamFiltersProps> = ({
                 Specialization
               </label>
               <select
-                value={filters.specialization || ''}
-                onChange={(e) => handleFilterChange('specialization', e.target.value)}
+                value={filters.specialization || ""}
+                onChange={(e) =>
+                  handleFilterChange("specialization", e.target.value)
+                }
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="">All Specializations</option>
-                {uniqueSpecializations.map(spec => (
+                {uniqueSpecializations.map((spec) => (
                   <option key={spec} value={spec}>
                     {spec}
                   </option>
@@ -237,42 +255,42 @@ export const ExamFilters: React.FC<ExamFiltersProps> = ({
               <FilterTag
                 label="Program"
                 value={filters.program}
-                onRemove={() => handleFilterChange('program', '')}
+                onRemove={() => handleFilterChange("program", "")}
               />
             )}
             {filters.yearLevel && (
               <FilterTag
                 label="Year"
                 value={filters.yearLevel}
-                onRemove={() => handleFilterChange('yearLevel', '')}
+                onRemove={() => handleFilterChange("yearLevel", "")}
               />
             )}
             {filters.semester && (
               <FilterTag
                 label="Semester"
                 value={filters.semester}
-                onRemove={() => handleFilterChange('semester', '')}
+                onRemove={() => handleFilterChange("semester", "")}
               />
             )}
             {filters.academicYear && (
               <FilterTag
                 label="Academic Year"
                 value={filters.academicYear}
-                onRemove={() => handleFilterChange('academicYear', '')}
+                onRemove={() => handleFilterChange("academicYear", "")}
               />
             )}
             {filters.session && (
               <FilterTag
                 label="Session"
                 value={filters.session}
-                onRemove={() => handleFilterChange('session', '')}
+                onRemove={() => handleFilterChange("session", "")}
               />
             )}
             {filters.specialization && (
               <FilterTag
                 label="Specialization"
                 value={filters.specialization}
-                onRemove={() => handleFilterChange('specialization', '')}
+                onRemove={() => handleFilterChange("specialization", "")}
               />
             )}
           </div>
@@ -298,8 +316,18 @@ const FilterTag: React.FC<FilterTagProps> = ({ label, value, onRemove }) => {
         onClick={onRemove}
         className="ml-1 hover:bg-blue-200 rounded-full p-0.5 transition"
       >
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        <svg
+          className="w-3.5 h-3.5"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M6 18L18 6M6 6l12 12"
+          />
         </svg>
       </button>
     </div>

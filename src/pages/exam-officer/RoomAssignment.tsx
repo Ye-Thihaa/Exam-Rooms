@@ -322,7 +322,7 @@ const useAvailableOptions = () => {
   return options;
 };
 
-// Helper Functions
+// Find this function around line 339
 const createInitialPairings = (rooms: Room[]): RoomPairing[] => {
   return rooms.map((room) => ({
     id: `${room.room_id}-${Date.now()}`,
@@ -334,8 +334,8 @@ const createInitialPairings = (rooms: Room[]): RoomPairing[] => {
       program: "",
       specialization: "",
     },
-    students_primary: STUDENTS_PER_GROUP,
-    students_secondary: STUDENTS_PER_GROUP,
+    students_primary: 0,
+    students_secondary: 0,
   }));
 };
 
@@ -394,6 +394,83 @@ const getAvailableSpecializationsForYear = (
   }
 
   return SPECIALIZATION_OPTIONS[yearLevel] || [];
+};
+
+// ✅ NEW: Get unassigned count for a specific student group
+const getUnassignedCountForGroup = (
+  group: StudentGroup,
+  studentStats: StudentStats | null,
+): number => {
+  if (!studentStats || !group.year_level) return 0;
+
+  const yearLevel = group.year_level;
+
+  // Year 1
+  if (yearLevel === "1") {
+    return studentStats.year1_unassigned;
+  }
+
+  // Year 2
+  if (yearLevel === "2") {
+    return studentStats.year2_unassigned;
+  }
+
+  // Year 3
+  if (yearLevel === "3") {
+    if (group.program === "CS" || group.specialization === "CS") {
+      return studentStats.year3_cs_unassigned;
+    }
+    if (group.program === "CT" || group.specialization === "CT") {
+      return studentStats.year3_ct_unassigned;
+    }
+    return 0;
+  }
+
+  // Year 4
+  if (yearLevel === "4" && group.specialization) {
+    const spec = studentStats.year4_specializations[group.specialization];
+    if (spec) {
+      return spec.total - spec.assigned;
+    }
+  }
+
+  return 0;
+};
+
+// ✅ NEW: Calculate total already assigned in all pairings for a specific group
+const getTotalAssignedForGroup = (
+  group: StudentGroup,
+  allPairings: RoomPairing[],
+  excludePairingId?: string,
+): number => {
+  let total = 0;
+
+  allPairings.forEach((pairing) => {
+    // Skip the current pairing being edited
+    if (excludePairingId && pairing.id === excludePairingId) return;
+
+    // Check if primary group matches
+    if (
+      pairing.group_primary.year_level === group.year_level &&
+      pairing.group_primary.sem === group.sem &&
+      pairing.group_primary.program === group.program &&
+      pairing.group_primary.specialization === group.specialization
+    ) {
+      total += pairing.students_primary;
+    }
+
+    // Check if secondary group matches
+    if (
+      pairing.group_secondary.year_level === group.year_level &&
+      pairing.group_secondary.sem === group.sem &&
+      pairing.group_secondary.program === group.program &&
+      pairing.group_secondary.specialization === group.specialization
+    ) {
+      total += pairing.students_secondary;
+    }
+  });
+
+  return total;
 };
 
 const logAssignmentData = (pairings: RoomPairing[]) => {
@@ -470,13 +547,12 @@ const validatePairings = (
 };
 
 /**
- * ✅ UPDATED: Convert room pairings to database format (without exam_id)
+ * Convert room pairings to database format (without exam_id)
  */
 const convertPairingsToExamRooms = (
   pairings: RoomPairing[],
 ): ExamRoomInsert[] => {
   return pairings.map((pairing) => ({
-    // ✅ NO exam_id field
     room_id: pairing.room.room_id,
     assigned_capacity: pairing.students_primary + pairing.students_secondary,
 
@@ -518,11 +594,60 @@ const RoomAssignment: React.FC = () => {
     setRoomPairings(createInitialPairings(selectedRooms));
   };
 
+  // ✅ UPDATED: Add validation before updating pairing
   const handleUpdatePairing = (
     id: string,
     field: keyof RoomPairing,
     value: any,
   ) => {
+    // Find the current pairing
+    const currentPairing = roomPairings.find((p) => p.id === id);
+    if (!currentPairing) return;
+
+    // If updating student count, validate against unassigned count
+    if (field === "students_primary" || field === "students_secondary") {
+      const newCount = parseInt(value) || 0;
+      const isPrimary = field === "students_primary";
+      const group = isPrimary
+        ? currentPairing.group_primary
+        : currentPairing.group_secondary;
+
+      // Check if group is fully defined
+      if (
+        !group.year_level ||
+        !group.sem ||
+        !group.program ||
+        !group.specialization
+      ) {
+        toast.error(
+          "Please select all group details before assigning students",
+        );
+        return;
+      }
+
+      // Get unassigned count for this specific group
+      const unassignedCount = getUnassignedCountForGroup(group, studentStats);
+
+      // Get total already assigned across all pairings (excluding current)
+      const alreadyAssigned = getTotalAssignedForGroup(group, roomPairings, id);
+
+      // Calculate available count
+      const availableCount = unassignedCount - alreadyAssigned;
+
+      // Validate
+      if (newCount > availableCount) {
+        const groupLabel = `Year ${group.year_level}, Sem ${group.sem}, ${PROGRAM_DISPLAY[group.program] || group.program}, ${group.specialization}`;
+
+        toast.error(
+          `Cannot assign ${newCount} students. Only ${availableCount} unassigned students available for ${groupLabel}`,
+          { duration: 5000 },
+        );
+
+        return; // Don't update the state
+      }
+    }
+
+    // Proceed with update if validation passes
     setRoomPairings((prev) =>
       prev.map((pairing) =>
         pairing.id === id ? { ...pairing, [field]: value } : pairing,
@@ -546,10 +671,8 @@ const RoomAssignment: React.FC = () => {
 
     setIsSaving(true);
     try {
-      // ✅ UPDATED: No examId parameter needed
       const examRooms = convertPairingsToExamRooms(roomPairings);
 
-      // ✅ Enhanced logging
       console.log(
         "📤 Data being sent to database:",
         JSON.stringify(examRooms, null, 2),

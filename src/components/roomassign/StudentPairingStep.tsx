@@ -15,7 +15,7 @@ interface StudentPairingStepProps {
     yearLevels: string[];
     semesters: string[];
     programs: string[];
-    specializations: string[]; // ✅ ADD
+    specializations: string[];
   };
   onUpdatePairing: (id: string, field: keyof RoomPairing, value: any) => void;
   onBack: () => void;
@@ -32,11 +32,11 @@ interface StudentPairingStepProps {
     allPrograms: string[],
   ) => string[];
 
-  getAvailableSpecializationsForYear: (yearLevel: string) => string[]; // ✅ ADD
+  getAvailableSpecializationsForYear: (yearLevel: string) => string[];
 
   getDefaultGroupValues: (
     yearLevel: string,
-  ) => Pick<StudentGroup, "sem" | "program" | "specialization">; // ✅ FIX
+  ) => Pick<StudentGroup, "sem" | "program" | "specialization">;
 }
 
 const StudentPairingStep: React.FC<StudentPairingStepProps> = ({
@@ -48,9 +48,19 @@ const StudentPairingStep: React.FC<StudentPairingStepProps> = ({
   isSaving,
   getAvailableSemestersForYear,
   getAvailableProgramsForYear,
-  getAvailableSpecializationsForYear, // ✅ ADD
+  getAvailableSpecializationsForYear,
   getDefaultGroupValues,
 }) => {
+  // Calculate total students across all pairings
+  const totalStudents = roomPairings.reduce(
+    (sum, pairing) =>
+      sum + (pairing.students_primary || 0) + (pairing.students_secondary || 0),
+    0,
+  );
+
+  // Check if total exceeds maximum
+  const exceedsMaximum = totalStudents > 36;
+
   return (
     <div className="space-y-6">
       <Card className="p-6">
@@ -58,10 +68,24 @@ const StudentPairingStep: React.FC<StudentPairingStepProps> = ({
           <h3 className="text-lg font-semibold">
             Room & Student Group Pairing
           </h3>
-          <Badge variant="outline">
-            {roomPairings.length} room{roomPairings.length !== 1 ? "s" : ""}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline">
+              {roomPairings.length} room{roomPairings.length !== 1 ? "s" : ""}
+            </Badge>
+            <Badge variant={exceedsMaximum ? "destructive" : "secondary"}>
+              {totalStudents}/36 students total
+            </Badge>
+          </div>
         </div>
+
+        {exceedsMaximum && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <p className="text-sm text-red-800">
+              ⚠️ Total student count ({totalStudents}) exceeds the maximum limit
+              of 36. Please reduce the number of students.
+            </p>
+          </div>
+        )}
 
         <div className="space-y-4">
           {roomPairings.map((pairing) => (
@@ -74,7 +98,7 @@ const StudentPairingStep: React.FC<StudentPairingStepProps> = ({
               getAvailableProgramsForYear={getAvailableProgramsForYear}
               getAvailableSpecializationsForYear={
                 getAvailableSpecializationsForYear
-              } // ✅ PASS DOWN
+              }
               getDefaultGroupValues={getDefaultGroupValues}
             />
           ))}
@@ -89,7 +113,11 @@ const StudentPairingStep: React.FC<StudentPairingStepProps> = ({
           >
             Back
           </Button>
-          <Button onClick={onSave} className="flex-1" disabled={isSaving}>
+          <Button
+            onClick={onSave}
+            className="flex-1"
+            disabled={isSaving || exceedsMaximum}
+          >
             {isSaving ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

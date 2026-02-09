@@ -1,8 +1,8 @@
 // services/dynamicSeatingAlgorithm.ts
 
 /**
- * Dynamic Seating Assignment Algorithm
- * Implements pair mixing, zig-zag alternation, and band-based spreading
+ * Static Pattern Seating Assignment Algorithm
+ * Uses predefined patterns for Group A and Group B
  */
 
 interface Student {
@@ -33,62 +33,81 @@ interface SeatingGrid {
 }
 
 /**
- * Extract students from bands (start, middle, end) to spread roll numbers
- * @param students - Available students
- * @param bandCount - Number of bands to create (equals pairs per row)
- * @returns Array of students, one from each band
+ * Static seating patterns for groups A and B
+ * Pattern format: "RowColumn" (e.g., "A1", "B2", "C3")
  */
-function extractFromBands(students: Student[], bandCount: number): Student[] {
-  if (students.length === 0) return [];
-  if (students.length <= bandCount) {
-    // Not enough students for all bands, return what we have
-    return students.splice(0, students.length);
-  }
+const SEATING_PATTERNS = {
+  groupA: [
+    "A1",
+    "B2",
+    "C1",
+    "D2",
+    "E1",
+    "F2",
+    "F4",
+    "E3",
+    "D4",
+    "C3",
+    "B4",
+    "A3",
+    "A6",
+    "B5",
+    "C6",
+    "D5",
+    "E6",
+    "F5",
+  ],
+  groupB: [
+    "A2",
+    "B1",
+    "C2",
+    "D1",
+    "E2",
+    "F1",
+    "F3",
+    "E4",
+    "D3",
+    "C4",
+    "B3",
+    "A4",
+    "A5",
+    "B6",
+    "C5",
+    "D6",
+    "E5",
+    "F6",
+  ],
+};
 
-  const selected: Student[] = [];
-  const bandSize = Math.floor(students.length / bandCount);
-
-  for (let i = 0; i < bandCount; i++) {
-    // Calculate band position
-    let index: number;
-
-    if (i === 0) {
-      // Band 0: start of list
-      index = 0;
-    } else if (i === bandCount - 1) {
-      // Last band: end of list
-      index = students.length - 1;
-    } else {
-      // Middle bands: evenly distributed
-      const position = (students.length - 1) * (i / (bandCount - 1));
-      index = Math.round(position);
-    }
-
-    // Ensure index is valid after previous removals
-    index = Math.min(index, students.length - 1);
-
-    // Extract student and remove from available list
-    const student = students.splice(index, 1)[0];
-    selected.push(student);
-  }
-
-  return selected;
+/**
+ * Parse seat position string into row and column
+ * @param seatPosition - Format: "A1", "B2", etc.
+ * @returns Object with rowLabel and columnNumber
+ */
+function parseSeatPosition(seatPosition: string): {
+  rowLabel: string;
+  columnNumber: number;
+} {
+  const rowLabel = seatPosition.charAt(0);
+  const columnNumber = parseInt(seatPosition.slice(1));
+  return { rowLabel, columnNumber };
 }
 
 /**
- * Determine which group a student belongs to based on metadata
- * Used to distinguish between primary and secondary groups
+ * Get row index from row label
+ * @param rowLabel - Single character row label (A, B, C, etc.)
+ * @returns Zero-based row index
  */
-function getStudentGroup(student: Student, groupIdentifier: "A" | "B"): string {
-  return groupIdentifier;
+function getRowIndex(rowLabel: string): number {
+  return rowLabel.charCodeAt(0) - "A".charCodeAt(0);
 }
 
 /**
- * Main dynamic seating assignment algorithm
- * @param groupA - First group of students (e.g., primary group)
- * @param groupB - Second group of students (e.g., secondary group)
- * @param colsPerRow - Total columns per row (must be even)
- * @param rows - Number of rows (if null, generates until students finish)
+ * Main static pattern seating assignment algorithm
+ * @param groupA - First group of students
+ * @param groupB - Second group of students
+ * @param colsPerRow - Total columns per row
+ * @param rows - Number of rows
  * @param examRoomId - Exam room identifier
  * @returns Seating grid and assignments
  */
@@ -99,20 +118,8 @@ export function dynamicSeatingAssignment(
   rows: number | null,
   examRoomId: number,
 ): SeatingGrid {
-  // Validate inputs
-  if (colsPerRow % 2 !== 0) {
-    throw new Error("colsPerRow must be even");
-  }
-
-  const pairCount = colsPerRow / 2;
-
-  // Create working copies of student lists with group markers
-  const availableA = [...groupA].map((s) => ({ ...s, _group: "A" as const }));
-  const availableB = [...groupB].map((s) => ({ ...s, _group: "B" as const }));
-
-  // Calculate required rows if not specified
-  const totalStudents = groupA.length + groupB.length;
-  const maxRows = rows ?? Math.ceil(totalStudents / colsPerRow);
+  // Use default 6 rows if not specified
+  const maxRows = rows ?? 6;
 
   // Generate row labels
   const rowLabels = "ABCDEFGHIJKLMNOPQRST".split("").slice(0, maxRows);
@@ -124,80 +131,52 @@ export function dynamicSeatingAssignment(
 
   const assignments: SeatingAssignment[] = [];
 
-  // Fill each row
-  for (let r = 0; r < maxRows; r++) {
-    // Stop if both groups are exhausted
-    if (availableA.length === 0 && availableB.length === 0) {
-      break;
-    }
+  // Assign Group A students to their pattern
+  const groupAPattern = SEATING_PATTERNS.groupA;
+  const studentsToAssignA = Math.min(groupA.length, groupAPattern.length);
 
-    // Determine if this is an even or odd row (0-based)
-    const isEvenRow = r % 2 === 0;
+  for (let i = 0; i < studentsToAssignA; i++) {
+    const student = groupA[i];
+    const seatPosition = groupAPattern[i];
+    const { rowLabel, columnNumber } = parseSeatPosition(seatPosition);
+    const rowIndex = getRowIndex(rowLabel);
+    const colIndex = columnNumber - 1; // Convert to 0-based index
 
-    // Extract students from bands
-    const studentsA = extractFromBands(availableA, pairCount);
-    const studentsB = extractFromBands(availableB, pairCount);
+    // Place student in grid
+    grid[rowIndex][colIndex] = student;
 
-    // Fill the row by pairs
-    for (let pairIndex = 0; pairIndex < pairCount; pairIndex++) {
-      const col1 = pairIndex * 2; // First column of pair (0, 2, 4, ...)
-      const col2 = pairIndex * 2 + 1; // Second column of pair (1, 3, 5, ...)
+    // Create assignment
+    assignments.push({
+      exam_room_id: examRoomId,
+      student_id: student.student_id,
+      seat_number: seatPosition,
+      row_label: rowLabel,
+      column_number: columnNumber,
+    });
+  }
 
-      const studentA = studentsA[pairIndex];
-      const studentB = studentsB[pairIndex];
+  // Assign Group B students to their pattern
+  const groupBPattern = SEATING_PATTERNS.groupB;
+  const studentsToAssignB = Math.min(groupB.length, groupBPattern.length);
 
-      if (isEvenRow) {
-        // Even row: groupA in odd-indexed columns (1, 3, 5), groupB in even-indexed (0, 2, 4)
-        // col1 (even index) gets groupB
-        if (studentB) {
-          grid[r][col1] = studentB;
-          assignments.push({
-            exam_room_id: examRoomId,
-            student_id: studentB.student_id,
-            seat_number: `${rowLabels[r]}${col1 + 1}`,
-            row_label: rowLabels[r],
-            column_number: col1 + 1,
-          });
-        }
+  for (let i = 0; i < studentsToAssignB; i++) {
+    const student = groupB[i];
+    const seatPosition = groupBPattern[i];
+    const { rowLabel, columnNumber } = parseSeatPosition(seatPosition);
+    const rowIndex = getRowIndex(rowLabel);
+    const colIndex = columnNumber - 1; // Convert to 0-based index
 
-        // col2 (odd index) gets groupA
-        if (studentA) {
-          grid[r][col2] = studentA;
-          assignments.push({
-            exam_room_id: examRoomId,
-            student_id: studentA.student_id,
-            seat_number: `${rowLabels[r]}${col2 + 1}`,
-            row_label: rowLabels[r],
-            column_number: col2 + 1,
-          });
-        }
-      } else {
-        // Odd row: swap - groupB in odd-indexed columns, groupA in even-indexed
-        // col1 (even index) gets groupA
-        if (studentA) {
-          grid[r][col1] = studentA;
-          assignments.push({
-            exam_room_id: examRoomId,
-            student_id: studentA.student_id,
-            seat_number: `${rowLabels[r]}${col1 + 1}`,
-            row_label: rowLabels[r],
-            column_number: col1 + 1,
-          });
-        }
+    // Place student in grid
+    grid[rowIndex][colIndex] = student;
 
-        // col2 (odd index) gets groupB
-        if (studentB) {
-          grid[r][col2] = studentB;
-          assignments.push({
-            exam_room_id: examRoomId,
-            student_id: studentB.student_id,
-            seat_number: `${rowLabels[r]}${col2 + 1}`,
-            row_label: rowLabels[r],
-            column_number: col2 + 1,
-          });
-        }
-      }
-    }
+    // Create assignment
+    assignments.push({
+      exam_room_id: examRoomId,
+      student_id: student.student_id,
+      seat_number: seatPosition,
+      row_label: rowLabel,
+      column_number: columnNumber,
+    });
   }
 
   return {
@@ -225,7 +204,20 @@ export function printSeatingGrid(result: SeatingGrid): void {
   result.grid.forEach((row, rowIndex) => {
     const rowLabel = result.rowLabels[rowIndex];
     const seats = row
-      .map((student) => (student ? student.student_number : "EMPTY"))
+      .map((student) => {
+        if (!student) return "EMPTY";
+        // Show student number and indicate group
+        const groupIndicator = SEATING_PATTERNS.groupA.some((pos) => {
+          const parsed = parseSeatPosition(pos);
+          return (
+            parsed.rowLabel === rowLabel &&
+            parsed.columnNumber === row.indexOf(student) + 1
+          );
+        })
+          ? "(A)"
+          : "(B)";
+        return `${student.student_number}${groupIndicator}`;
+      })
       .join("\t");
     console.log(`${rowLabel}\t${seats}`);
   });
@@ -237,8 +229,7 @@ export function printSeatingGrid(result: SeatingGrid): void {
 }
 
 /**
- * Validate the seating arrangement against the rules
- * Now uses the _group marker instead of student_number prefix
+ * Validate the seating arrangement against the static patterns
  */
 export function validateSeatingArrangement(
   result: SeatingGrid,
@@ -249,55 +240,37 @@ export function validateSeatingArrangement(
   errors: string[];
 } {
   const errors: string[] = [];
-  const colsPerRow = result.grid[0]?.length || 0;
-  const pairCount = colsPerRow / 2;
 
-  // Check each row
-  result.grid.forEach((row, rowIndex) => {
-    const isEvenRow = rowIndex % 2 === 0;
+  // Check that Group A students are in Group A pattern positions
+  result.assignments.forEach((assignment) => {
+    const isGroupA = groupAStudentIds.has(assignment.student_id);
+    const seatPosition = assignment.seat_number;
 
-    // Check each pair
-    for (let pairIndex = 0; pairIndex < pairCount; pairIndex++) {
-      const col1 = pairIndex * 2;
-      const col2 = pairIndex * 2 + 1;
+    const shouldBeGroupA = SEATING_PATTERNS.groupA.includes(seatPosition);
+    const shouldBeGroupB = SEATING_PATTERNS.groupB.includes(seatPosition);
 
-      const student1 = row[col1];
-      const student2 = row[col2];
+    if (isGroupA && !shouldBeGroupA) {
+      errors.push(
+        `Student ${assignment.student_id} from Group A assigned to Group B position ${seatPosition}`,
+      );
+    }
 
-      if (student1 && student2) {
-        // Determine which group each student belongs to
-        const isStudent1GroupA = groupAStudentIds.has(student1.student_id);
-        const isStudent2GroupA = groupAStudentIds.has(student2.student_id);
-
-        // Pairs must have one from each group
-        if (isStudent1GroupA === isStudent2GroupA) {
-          errors.push(
-            `Row ${result.rowLabels[rowIndex]}, Pair ${pairIndex + 1}: ` +
-              `Both students from same group (${student1.student_number}, ${student2.student_number})`,
-          );
-        }
-
-        // Check zig-zag pattern
-        if (isEvenRow) {
-          // Even row: col1 should be group B, col2 should be group A
-          if (isStudent1GroupA || !isStudent2GroupA) {
-            errors.push(
-              `Row ${result.rowLabels[rowIndex]}, Pair ${pairIndex + 1}: ` +
-                `Incorrect zig-zag pattern for even row (expected B-A, got ${isStudent1GroupA ? "A" : "B"}-${isStudent2GroupA ? "A" : "B"})`,
-            );
-          }
-        } else {
-          // Odd row: col1 should be group A, col2 should be group B
-          if (!isStudent1GroupA || isStudent2GroupA) {
-            errors.push(
-              `Row ${result.rowLabels[rowIndex]}, Pair ${pairIndex + 1}: ` +
-                `Incorrect zig-zag pattern for odd row (expected A-B, got ${isStudent1GroupA ? "A" : "B"}-${isStudent2GroupA ? "A" : "B"})`,
-            );
-          }
-        }
-      }
+    if (!isGroupA && !shouldBeGroupB) {
+      errors.push(
+        `Student ${assignment.student_id} from Group B assigned to Group A position ${seatPosition}`,
+      );
     }
   });
+
+  // Check for duplicate assignments
+  const seatNumbers = result.assignments.map((a) => a.seat_number);
+  const duplicates = seatNumbers.filter(
+    (seat, index) => seatNumbers.indexOf(seat) !== index,
+  );
+
+  if (duplicates.length > 0) {
+    errors.push(`Duplicate seat assignments found: ${duplicates.join(", ")}`);
+  }
 
   return {
     valid: errors.length === 0,
@@ -341,7 +314,7 @@ export function exampleUsage(): void {
     groupA,
     groupB,
     6, // 6 columns per row
-    null, // Auto-calculate rows needed
+    6, // 6 rows (A-F)
     1, // exam_room_id
   );
 
@@ -359,6 +332,10 @@ export function exampleUsage(): void {
     console.log("Errors:");
     validation.errors.forEach((err) => console.log(`  - ${err}`));
   }
+
+  console.log("\n=== PATTERN VERIFICATION ===");
+  console.log("Group A Pattern:", SEATING_PATTERNS.groupA.join(" → "));
+  console.log("Group B Pattern:", SEATING_PATTERNS.groupB.join(" → "));
 }
 
 export type { Student, SeatingAssignment, SeatingGrid };
