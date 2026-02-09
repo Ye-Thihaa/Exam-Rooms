@@ -296,7 +296,7 @@ export async function getStudentStatistics() {
       retakeStudents: retakeCount || 0,
       yearLevelDistribution,
       majorDistribution,
-      specializationDistribution, // ✅ ADDED
+      specializationDistribution,
     };
   } catch (error) {
     console.error("Error getting student statistics:", error);
@@ -404,5 +404,63 @@ export async function getUniqueSpecializations(): Promise<string[]> {
   } catch (error) {
     console.error("Error in getUniqueSpecializations:", error);
     return [];
+  }
+}
+
+// ========================================
+// NEW FUNCTIONS FOR PENDING ASSIGNMENT
+// ========================================
+
+/**
+ * Mark students as pending assignment (temporary hold)
+ * This prevents them from being selected for other rooms
+ * @param studentIds - Array of student IDs to mark as pending
+ */
+export async function markStudentsAsPending(
+  studentIds: number[],
+): Promise<{ success: boolean; error?: any }> {
+  try {
+    const { error } = await supabase
+      .from(TABLE_NAME)
+      .update({ is_assigned: true })
+      .in("student_id", studentIds);
+
+    if (error) {
+      console.error("Error marking students as pending:", error);
+      return { success: false, error };
+    }
+
+    console.log(`✅ Marked ${studentIds.length} students as pending`);
+    return { success: true };
+  } catch (error) {
+    console.error("Error in markStudentsAsPending:", error);
+    return { success: false, error };
+  }
+}
+
+/**
+ * Release students from pending status
+ * Used when user cancels the preview or navigates away
+ * @param studentIds - Array of student IDs to release
+ */
+export async function releaseStudentsFromPending(
+  studentIds: number[],
+): Promise<{ success: boolean; error?: any }> {
+  try {
+    const { error } = await supabase
+      .from(TABLE_NAME)
+      .update({ is_assigned: false })
+      .in("student_id", studentIds);
+
+    if (error) {
+      console.error("Error releasing students from pending:", error);
+      return { success: false, error };
+    }
+
+    console.log(`✅ Released ${studentIds.length} students from pending`);
+    return { success: true };
+  } catch (error) {
+    console.error("Error in releaseStudentsFromPending:", error);
+    return { success: false, error };
   }
 }

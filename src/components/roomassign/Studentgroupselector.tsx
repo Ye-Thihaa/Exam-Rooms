@@ -31,6 +31,7 @@ interface StudentGroupSelectorProps {
   onSpecializationChange: (value: string) => void;
 
   studentCount: number;
+  onStudentCountChange: (value: number) => void; // ✅ NEW
   disabledProgram?: string;
 }
 
@@ -46,11 +47,30 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
   onProgramChange,
   onSpecializationChange,
   studentCount,
+  onStudentCountChange, // ✅ NEW
   disabledProgram,
 }) => {
   // Determine if fields should be locked based on year level
   const isProgramLocked = ["1", "2"].includes(group.year_level);
   const isSpecializationLocked = ["1", "2", "3"].includes(group.year_level);
+
+  // ✅ Handle student count change with validation
+  const handleStudentCountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+
+    // Allow empty string for clearing
+    if (value === "") {
+      onStudentCountChange(0);
+      return;
+    }
+
+    const numValue = parseInt(value, 10);
+
+    // Validate: must be between 0 and 36
+    if (!isNaN(numValue) && numValue >= 0 && numValue <= 36) {
+      onStudentCountChange(numValue);
+    }
+  };
 
   // Get display values
   const getYearDisplay = () => {
@@ -185,14 +205,17 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
           </Select>
         </div>
 
-        {/* Students Count */}
+        {/* Students Count - ✅ NOW EDITABLE */}
         <div>
           <Label className="text-xs">Students</Label>
           <Input
             type="number"
-            value={studentCount}
-            disabled
-            className="bg-muted"
+            value={studentCount || ""}
+            onChange={handleStudentCountChange}
+            min={0}
+            max={36}
+            placeholder="0-36"
+            className={studentCount > 36 ? "border-red-500" : "bg-white"}
           />
         </div>
       </div>

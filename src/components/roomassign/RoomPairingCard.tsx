@@ -110,6 +110,16 @@ const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
     onUpdate(pairing.id, groupType, nextGroup);
   };
 
+  /**
+   * ✅ Handle student count change
+   */
+  const handleStudentCountChange = (
+    groupType: "students_primary" | "students_secondary",
+    value: number,
+  ) => {
+    onUpdate(pairing.id, groupType, value);
+  };
+
   return (
     <Card className="p-4 border-2">
       <div className="space-y-4">
@@ -157,6 +167,9 @@ const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
             handleFieldChange("group_primary", "specialization", value)
           }
           studentCount={pairing.students_primary}
+          onStudentCountChange={(value) =>
+            handleStudentCountChange("students_primary", value)
+          }
         />
 
         {/* Secondary Group */}
@@ -187,6 +200,9 @@ const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
             handleFieldChange("group_secondary", "specialization", value)
           }
           studentCount={pairing.students_secondary}
+          onStudentCountChange={(value) =>
+            handleStudentCountChange("students_secondary", value)
+          }
           disabledProgram={
             pairing.group_primary.year_level ===
               pairing.group_secondary.year_level &&
