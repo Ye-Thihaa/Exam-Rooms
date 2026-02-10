@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { X, Users, Clock, AlertCircle, CheckCircle2, AlertTriangle, TrendingUp } from "lucide-react";
-import { teacherAssignmentQueries } from "@/services/teacherAssignmentQueries_v2";
+import { teacherAssignmentQueries } from "@/services/teacherassignmentQueries";
 import {
   TeacherRole,
   ExamSession,
   TeacherWithAvailability,
   ExamRoomAssignmentStatus,
-} from "@/types/teacherAssignmentTypes_v2";
+} from "@/services/teacherAssignmentTypes";
 
 interface AssignTeachersModalProps {
   examRoomId: number;
