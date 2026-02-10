@@ -1,6 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { X, Users, Clock, AlertCircle, CheckCircle2, AlertTriangle, TrendingUp } from "lucide-react";
+import {
+  X,
+  Users,
+  Clock,
+  AlertCircle,
+  CheckCircle2,
+  AlertTriangle,
+  TrendingUp,
+} from "lucide-react";
 import { teacherAssignmentQueries } from "@/services/teacherassignmentQueries";
 import {
   TeacherRole,
@@ -31,8 +39,12 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
   const [status, setStatus] = useState<ExamRoomAssignmentStatus | null>(null);
   const [supervisors, setSupervisors] = useState<TeacherWithAvailability[]>([]);
   const [assistants, setAssistants] = useState<TeacherWithAvailability[]>([]);
-  const [selectedSupervisor, setSelectedSupervisor] = useState<number | null>(null);
-  const [selectedAssistant, setSelectedAssistant] = useState<number | null>(null);
+  const [selectedSupervisor, setSelectedSupervisor] = useState<number | null>(
+    null,
+  );
+  const [selectedAssistant, setSelectedAssistant] = useState<number | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +60,8 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
     setError(null);
     try {
       // Get current assignment status
-      const roomStatus = await teacherAssignmentQueries.getExamRoomStatus(examRoomId);
+      const roomStatus =
+        await teacherAssignmentQueries.getExamRoomStatus(examRoomId);
       setStatus(roomStatus);
 
       // Load available teachers for each role WITH session checking
@@ -57,13 +70,13 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
           examRoomId,
           "Supervisor",
           examDate,
-          examSession
+          examSession,
         ),
         teacherAssignmentQueries.getAvailableTeachersWithSession(
           examRoomId,
           "Assistant",
           examDate,
-          examSession
+          examSession,
         ),
       ]);
 
@@ -77,8 +90,9 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
   };
 
   const handleAssign = async (role: TeacherRole) => {
-    const teacherId = role === "Supervisor" ? selectedSupervisor : selectedAssistant;
-    
+    const teacherId =
+      role === "Supervisor" ? selectedSupervisor : selectedAssistant;
+
     if (!teacherId) {
       setError(`Please select a ${role.toLowerCase()}`);
       return;
@@ -96,11 +110,11 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
         examDate,
         examSession,
         examTime?.start,
-        examTime?.end
+        examTime?.end,
       );
 
       setSuccessMessage(`${role} assigned successfully!`);
-      
+
       // Reset selection
       if (role === "Supervisor") {
         setSelectedSupervisor(null);
@@ -122,7 +136,11 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
   };
 
   const handleRemove = async (role: TeacherRole) => {
-    if (!window.confirm(`Are you sure you want to remove the ${role.toLowerCase()}?`)) {
+    if (
+      !window.confirm(
+        `Are you sure you want to remove the ${role.toLowerCase()}?`,
+      )
+    ) {
       return;
     }
 
@@ -132,7 +150,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
     try {
       await teacherAssignmentQueries.deleteByRoomAndRole(examRoomId, role);
       setSuccessMessage(`${role} removed successfully!`);
-      
+
       await loadData();
       onSuccess();
 
@@ -145,11 +163,14 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
   };
 
   // Get workload badge color
-  const getWorkloadColor = (level: 'Light' | 'Medium' | 'High') => {
+  const getWorkloadColor = (level: "Light" | "Medium" | "High") => {
     switch (level) {
-      case 'Light': return 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400';
-      case 'Medium': return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400';
-      case 'High': return 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400';
+      case "Light":
+        return "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400";
+      case "Medium":
+        return "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400";
+      case "High":
+        return "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400";
     }
   };
 
@@ -160,7 +181,9 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-              <p className="text-muted-foreground">Loading available teachers...</p>
+              <p className="text-muted-foreground">
+                Loading available teachers...
+              </p>
             </div>
           </div>
         </div>
@@ -224,32 +247,40 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
 
           {/* Assignment Status Banner */}
           <div className="grid grid-cols-2 gap-4">
-            <div className={`p-4 rounded-lg border ${
-              status?.hasSupervisor 
-                ? 'border-green-200 bg-green-50 dark:border-green-900/30 dark:bg-green-900/10'
-                : 'border-orange-200 bg-orange-50 dark:border-orange-900/30 dark:bg-orange-900/10'
-            }`}>
-              <p className="text-sm font-medium mb-1">Supervisor</p>
-              <p className={`text-xs ${
+            <div
+              className={`p-4 rounded-lg border ${
                 status?.hasSupervisor
-                  ? 'text-green-600 dark:text-green-400'
-                  : 'text-orange-600 dark:text-orange-400'
-              }`}>
-                {status?.hasSupervisor ? '✓ Assigned' : '⚠ Not Assigned'}
+                  ? "border-green-200 bg-green-50 dark:border-green-900/30 dark:bg-green-900/10"
+                  : "border-orange-200 bg-orange-50 dark:border-orange-900/30 dark:bg-orange-900/10"
+              }`}
+            >
+              <p className="text-sm font-medium mb-1">Supervisor</p>
+              <p
+                className={`text-xs ${
+                  status?.hasSupervisor
+                    ? "text-green-600 dark:text-green-400"
+                    : "text-orange-600 dark:text-orange-400"
+                }`}
+              >
+                {status?.hasSupervisor ? "✓ Assigned" : "⚠ Not Assigned"}
               </p>
             </div>
-            <div className={`p-4 rounded-lg border ${
-              status?.hasAssistant
-                ? 'border-green-200 bg-green-50 dark:border-green-900/30 dark:bg-green-900/10'
-                : 'border-orange-200 bg-orange-50 dark:border-orange-900/30 dark:bg-orange-900/10'
-            }`}>
-              <p className="text-sm font-medium mb-1">Assistant</p>
-              <p className={`text-xs ${
+            <div
+              className={`p-4 rounded-lg border ${
                 status?.hasAssistant
-                  ? 'text-green-600 dark:text-green-400'
-                  : 'text-orange-600 dark:text-orange-400'
-              }`}>
-                {status?.hasAssistant ? '✓ Assigned' : '⚠ Not Assigned'}
+                  ? "border-green-200 bg-green-50 dark:border-green-900/30 dark:bg-green-900/10"
+                  : "border-orange-200 bg-orange-50 dark:border-orange-900/30 dark:bg-orange-900/10"
+              }`}
+            >
+              <p className="text-sm font-medium mb-1">Assistant</p>
+              <p
+                className={`text-xs ${
+                  status?.hasAssistant
+                    ? "text-green-600 dark:text-green-400"
+                    : "text-orange-600 dark:text-orange-400"
+                }`}
+              >
+                {status?.hasAssistant ? "✓ Assigned" : "⚠ Not Assigned"}
               </p>
             </div>
           </div>
@@ -280,49 +311,65 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                 <select
                   className="w-full px-3 py-2 border rounded-lg mb-3 focus:outline-none focus:ring-2 focus:ring-primary"
                   value={selectedSupervisor || ""}
-                  onChange={(e) => setSelectedSupervisor(Number(e.target.value) || null)}
+                  onChange={(e) =>
+                    setSelectedSupervisor(Number(e.target.value) || null)
+                  }
                   disabled={submitting}
                 >
                   <option value="">Select a supervisor...</option>
                   {supervisors.map((teacher) => (
-                    <option 
-                      key={teacher.teacher_id} 
+                    <option
+                      key={teacher.teacher_id}
                       value={teacher.teacher_id}
                       disabled={!teacher.availability.is_available}
                     >
-                      {teacher.name} - {teacher.rank} ({teacher.department}) 
-                      {' • '}{teacher.workload_level} workload ({teacher.total_periods_assigned || 0} exams)
-                      {!teacher.availability.is_available && ' - UNAVAILABLE'}
+                      {teacher.name} - {teacher.rank} ({teacher.department})
+                      {" • "}
+                      {teacher.workload_level} workload (
+                      {teacher.total_periods_assigned || 0} exams)
+                      {!teacher.availability.is_available && " - UNAVAILABLE"}
                     </option>
                   ))}
                 </select>
 
                 {/* Selected teacher info */}
-                {selectedSupervisor && supervisors.find(t => t.teacher_id === selectedSupervisor) && (
-                  <div className="mb-3 p-3 rounded-lg bg-muted/50 text-sm">
-                    {(() => {
-                      const teacher = supervisors.find(t => t.teacher_id === selectedSupervisor)!;
-                      return (
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <TrendingUp className="h-4 w-4" />
-                            <span>Workload: </span>
-                            <span className={`px-2 py-0.5 rounded text-xs ${getWorkloadColor(teacher.workload_level)}`}>
-                              {teacher.workload_level}
-                            </span>
-                            <span className="text-muted-foreground">({teacher.total_periods_assigned || 0} exam assignments)</span>
-                          </div>
-                          {!teacher.availability.is_available && (
-                            <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400">
-                              <AlertTriangle className="h-4 w-4" />
-                              <span>{teacher.availability.conflict_reason}</span>
+                {selectedSupervisor &&
+                  supervisors.find(
+                    (t) => t.teacher_id === selectedSupervisor,
+                  ) && (
+                    <div className="mb-3 p-3 rounded-lg bg-muted/50 text-sm">
+                      {(() => {
+                        const teacher = supervisors.find(
+                          (t) => t.teacher_id === selectedSupervisor,
+                        )!;
+                        return (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <TrendingUp className="h-4 w-4" />
+                              <span>Workload: </span>
+                              <span
+                                className={`px-2 py-0.5 rounded text-xs ${getWorkloadColor(teacher.workload_level)}`}
+                              >
+                                {teacher.workload_level}
+                              </span>
+                              <span className="text-muted-foreground">
+                                ({teacher.total_periods_assigned || 0} exam
+                                assignments)
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
+                            {!teacher.availability.is_available && (
+                              <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400">
+                                <AlertTriangle className="h-4 w-4" />
+                                <span>
+                                  {teacher.availability.conflict_reason}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
 
                 <Button
                   onClick={() => handleAssign("Supervisor")}
@@ -337,11 +384,14 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                     No available supervisors for this time slot
                   </p>
                 )}
-                {supervisors.length > 0 && supervisors.filter(t => t.availability.is_available).length === 0 && (
-                  <p className="text-sm text-orange-600 dark:text-orange-400 mt-2 text-center">
-                    ⚠ All supervisors are already assigned to other exams during this session
-                  </p>
-                )}
+                {supervisors.length > 0 &&
+                  supervisors.filter((t) => t.availability.is_available)
+                    .length === 0 && (
+                    <p className="text-sm text-orange-600 dark:text-orange-400 mt-2 text-center">
+                      ⚠ All supervisors are already assigned to other exams
+                      during this session
+                    </p>
+                  )}
               </>
             )}
 
@@ -380,49 +430,65 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                 <select
                   className="w-full px-3 py-2 border rounded-lg mb-3 focus:outline-none focus:ring-2 focus:ring-primary"
                   value={selectedAssistant || ""}
-                  onChange={(e) => setSelectedAssistant(Number(e.target.value) || null)}
+                  onChange={(e) =>
+                    setSelectedAssistant(Number(e.target.value) || null)
+                  }
                   disabled={submitting}
                 >
                   <option value="">Select an assistant...</option>
                   {assistants.map((teacher) => (
-                    <option 
-                      key={teacher.teacher_id} 
+                    <option
+                      key={teacher.teacher_id}
                       value={teacher.teacher_id}
                       disabled={!teacher.availability.is_available}
                     >
                       {teacher.name} - {teacher.rank} ({teacher.department})
-                      {' • '}{teacher.workload_level} workload ({teacher.total_periods_assigned || 0} exams)
-                      {!teacher.availability.is_available && ' - UNAVAILABLE'}
+                      {" • "}
+                      {teacher.workload_level} workload (
+                      {teacher.total_periods_assigned || 0} exams)
+                      {!teacher.availability.is_available && " - UNAVAILABLE"}
                     </option>
                   ))}
                 </select>
 
                 {/* Selected teacher info */}
-                {selectedAssistant && assistants.find(t => t.teacher_id === selectedAssistant) && (
-                  <div className="mb-3 p-3 rounded-lg bg-muted/50 text-sm">
-                    {(() => {
-                      const teacher = assistants.find(t => t.teacher_id === selectedAssistant)!;
-                      return (
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <TrendingUp className="h-4 w-4" />
-                            <span>Workload: </span>
-                            <span className={`px-2 py-0.5 rounded text-xs ${getWorkloadColor(teacher.workload_level)}`}>
-                              {teacher.workload_level}
-                            </span>
-                            <span className="text-muted-foreground">({teacher.total_periods_assigned || 0} exam assignments)</span>
-                          </div>
-                          {!teacher.availability.is_available && (
-                            <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400">
-                              <AlertTriangle className="h-4 w-4" />
-                              <span>{teacher.availability.conflict_reason}</span>
+                {selectedAssistant &&
+                  assistants.find(
+                    (t) => t.teacher_id === selectedAssistant,
+                  ) && (
+                    <div className="mb-3 p-3 rounded-lg bg-muted/50 text-sm">
+                      {(() => {
+                        const teacher = assistants.find(
+                          (t) => t.teacher_id === selectedAssistant,
+                        )!;
+                        return (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <TrendingUp className="h-4 w-4" />
+                              <span>Workload: </span>
+                              <span
+                                className={`px-2 py-0.5 rounded text-xs ${getWorkloadColor(teacher.workload_level)}`}
+                              >
+                                {teacher.workload_level}
+                              </span>
+                              <span className="text-muted-foreground">
+                                ({teacher.total_periods_assigned || 0} exam
+                                assignments)
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
+                            {!teacher.availability.is_available && (
+                              <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400">
+                                <AlertTriangle className="h-4 w-4" />
+                                <span>
+                                  {teacher.availability.conflict_reason}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
 
                 <Button
                   onClick={() => handleAssign("Assistant")}
@@ -437,11 +503,14 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                     No available assistants for this time slot
                   </p>
                 )}
-                {assistants.length > 0 && assistants.filter(t => t.availability.is_available).length === 0 && (
-                  <p className="text-sm text-orange-600 dark:text-orange-400 mt-2 text-center">
-                    ⚠ All assistants are already assigned to other exams during this session
-                  </p>
-                )}
+                {assistants.length > 0 &&
+                  assistants.filter((t) => t.availability.is_available)
+                    .length === 0 && (
+                    <p className="text-sm text-orange-600 dark:text-orange-400 mt-2 text-center">
+                      ⚠ All assistants are already assigned to other exams
+                      during this session
+                    </p>
+                  )}
               </>
             )}
 
@@ -459,9 +528,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
             <div className="p-4 rounded-lg border border-green-200 bg-green-50 dark:border-green-900/30 dark:bg-green-900/10">
               <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
                 <CheckCircle2 className="h-5 w-5" />
-                <p className="font-medium">
-                  This exam room is fully staffed!
-                </p>
+                <p className="font-medium">This exam room is fully staffed!</p>
               </div>
             </div>
           )}

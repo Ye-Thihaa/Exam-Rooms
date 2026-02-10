@@ -8,6 +8,7 @@ export interface SeatingAssignmentInput {
   seat_number: string;
   row_label: string;
   column_number: number;
+  student_group: "A" | "B"; // A for primary group, B for secondary group
 }
 
 export interface SeatingAssignmentWithStudent {
@@ -17,6 +18,7 @@ export interface SeatingAssignmentWithStudent {
   seat_number: string;
   row_label: string;
   column_number: number;
+  student_group: "A" | "B"; // A for primary group, B for secondary group
   assigned_at: string;
   student: {
     student_id: number;
@@ -144,6 +146,44 @@ export async function getSeatingAssignmentsByExamRoom(examRoomId: number) {
 }
 
 /**
+ * Get seating assignments by student group
+ */
+export async function getSeatingAssignmentsByGroup(
+  examRoomId: number,
+  studentGroup: "A" | "B",
+) {
+  try {
+    const { data, error } = await supabase
+      .from("seating_assignment")
+      .select(
+        `
+        *,
+        student:student_id (
+          student_id,
+          student_number,
+          name,
+          year_level,
+          sem,
+          major,
+          specialization
+        )
+      `,
+      )
+      .eq("exam_room_id", examRoomId)
+      .eq("student_group", studentGroup)
+      .order("row_label")
+      .order("column_number");
+
+    if (error) throw error;
+
+    return { success: true, data: data as SeatingAssignmentWithStudent[] };
+  } catch (error) {
+    console.error("Error fetching seating assignments by group:", error);
+    return { success: false, error, data: [] };
+  }
+}
+
+/**
  * Clear all seating assignments for an exam room
  */
 export async function clearSeatingAssignments(examRoomId: number) {
@@ -183,5 +223,28 @@ export async function checkExistingSeatingAssignments(examRoomId: number) {
   } catch (error) {
     console.error("Error checking existing assignments:", error);
     return { success: false, count: 0, hasAssignments: false };
+  }
+}
+
+/**
+ * Get count of assigned seats by group
+ */
+export async function getAssignedCountByGroup(
+  examRoomId: number,
+  studentGroup: "A" | "B",
+) {
+  try {
+    const { count, error } = await supabase
+      .from("seating_assignment")
+      .select("*", { count: "exact", head: true })
+      .eq("exam_room_id", examRoomId)
+      .eq("student_group", studentGroup);
+
+    if (error) throw error;
+
+    return { success: true, count: count || 0 };
+  } catch (error) {
+    console.error("Error getting count by group:", error);
+    return { success: false, count: 0 };
   }
 }

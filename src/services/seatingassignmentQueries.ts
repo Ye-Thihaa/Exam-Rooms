@@ -5,8 +5,9 @@ export interface SeatingAssignment {
   exam_room_id: number;
   student_id: number;
   seat_number: string;
-  row_number: number;
+  row_label: string; // actual DB column (was incorrectly typed as row_number)
   column_number: number;
+  student_group: "A" | "B"; // A for primary group, B for secondary group
   assigned_at: string;
 }
 
@@ -118,7 +119,32 @@ export const seatingAssignmentQueries = {
       `,
       )
       .eq("exam_room_id", examRoomId)
-      .order("row_number", { ascending: true })
+      .order("row_label", { ascending: true })
+      .order("column_number", { ascending: true });
+
+    if (error) throw error;
+    return data as SeatingAssignmentWithDetails[];
+  },
+
+  // Get seating assignments by student group
+  async getByExamRoomIdAndGroup(examRoomId: number, studentGroup: "A" | "B") {
+    const { data, error } = await supabase
+      .from("seating_assignment")
+      .select(
+        `
+        *,
+        student:student_id (
+          student_id,
+          student_number,
+          name,
+          year_level,
+          major
+        )
+      `,
+      )
+      .eq("exam_room_id", examRoomId)
+      .eq("student_group", studentGroup)
+      .order("row_label", { ascending: true })
       .order("column_number", { ascending: true });
 
     if (error) throw error;
@@ -195,8 +221,8 @@ export const seatingAssignmentQueries = {
     return data as SeatingAssignmentWithDetails;
   },
 
-  // Get seating assignment by row and column
-  async getByRowAndColumn(examRoomId: number, row: number, col: number) {
+  // Get seating assignment by row_label and column
+  async getByRowAndColumn(examRoomId: number, rowLabel: string, col: number) {
     const { data, error } = await supabase
       .from("seating_assignment")
       .select(
@@ -212,7 +238,7 @@ export const seatingAssignmentQueries = {
       `,
       )
       .eq("exam_room_id", examRoomId)
-      .eq("row_number", row)
+      .eq("row_label", rowLabel)
       .eq("column_number", col)
       .single();
 
@@ -294,12 +320,12 @@ export const seatingAssignmentQueries = {
   },
 
   // Check if a seat is occupied
-  async isSeatOccupied(examRoomId: number, row: number, col: number) {
+  async isSeatOccupied(examRoomId: number, rowLabel: string, col: number) {
     const { data, error } = await supabase
       .from("seating_assignment")
       .select("seating_id")
       .eq("exam_room_id", examRoomId)
-      .eq("row_number", row)
+      .eq("row_label", rowLabel)
       .eq("column_number", col);
 
     if (error) throw error;
@@ -312,9 +338,10 @@ export const seatingAssignmentQueries = {
       .from("seating_assignment")
       .select(
         `
-        row_number,
+        row_label,
         column_number,
         seat_number,
+        student_group,
         student:student_id (
           student_number,
           name
@@ -322,7 +349,7 @@ export const seatingAssignmentQueries = {
       `,
       )
       .eq("exam_room_id", examRoomId)
-      .order("row_number", { ascending: true })
+      .order("row_label", { ascending: true })
       .order("column_number", { ascending: true });
 
     if (error) throw error;
@@ -335,6 +362,18 @@ export const seatingAssignmentQueries = {
       .from("seating_assignment")
       .select("*", { count: "exact", head: true })
       .eq("exam_room_id", examRoomId);
+
+    if (error) throw error;
+    return count || 0;
+  },
+
+  // Get count by group
+  async getAssignedCountByGroup(examRoomId: number, studentGroup: "A" | "B") {
+    const { count, error } = await supabase
+      .from("seating_assignment")
+      .select("*", { count: "exact", head: true })
+      .eq("exam_room_id", examRoomId)
+      .eq("student_group", studentGroup);
 
     if (error) throw error;
     return count || 0;

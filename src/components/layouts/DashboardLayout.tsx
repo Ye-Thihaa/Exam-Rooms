@@ -19,6 +19,7 @@ import {
   Settings,
   ChevronDown,
   Armchair,
+  LoaderCircle,
   LayoutGrid,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -57,7 +58,11 @@ const roleNavItems: Record<string, NavItem[]> = {
       path: "/exam-officer/room-management",
     },
     { icon: LayoutGrid, label: "Seating Plans", path: "/exam-officer/seating" },
-
+    {
+      icon: LoaderCircle,
+      label: "Special Exams",
+      path: "/exam-officer/special-exams",
+    },
     {
       icon: BookOpen,
       label: "Teacher Assignments",
