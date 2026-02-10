@@ -9,13 +9,13 @@ import {
   AlertTriangle,
   TrendingUp,
 } from "lucide-react";
-import { teacherAssignmentQueries } from "@/services/teacherAssignmentQueries_v2";
+import { teacherAssignmentQueries } from "@/services/teacherassignmentQueries";
 import {
   TeacherRole,
   ExamSession,
   TeacherWithAvailability,
   ExamRoomAssignmentStatus,
-} from "@/types/teacherAssignmentTypes";
+} from "@/services/teacherAssignmentTypes";
 
 interface AssignTeachersModalProps {
   examRoomId: number;

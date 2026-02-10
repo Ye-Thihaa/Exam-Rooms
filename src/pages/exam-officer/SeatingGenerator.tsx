@@ -82,6 +82,7 @@ interface SeatAssignment {
   studentNumber?: string;
   studentName?: string;
   studentGroup?: string;
+  groupType?: "A" | "B";
 }
 
 interface StudentData {
@@ -225,17 +226,12 @@ const SeatingGenerator: React.FC = () => {
     const rows = examRoom.room.rows;
     const cols = examRoom.room.cols;
 
-    // Create a map of all assignments for quick lookup
     const assignmentMap = new Map<string, (typeof result.assignments)[0]>();
     result.assignments.forEach((assignment) => {
       const key = `${assignment.row_label}-${assignment.column_number}`;
       assignmentMap.set(key, assignment);
     });
 
-    console.log(`Converting ${result.assignments.length} assignments to seats`);
-    console.log("Sample assignment:", result.assignments[0]);
-
-    // Generate all seats row by row
     for (let rowIndex = 0; rowIndex < rows; rowIndex++) {
       const rowLabel =
         result.rowLabels[rowIndex] || "ABCDEFGHIJKLMNOPQRST"[rowIndex];
@@ -246,12 +242,13 @@ const SeatingGenerator: React.FC = () => {
         const assignment = assignmentMap.get(seatKey);
 
         if (assignment) {
-          // Find the student in the grid
           const student = result.grid[rowIndex]?.[colIndex];
 
           if (student) {
-            // Determine if student is from primary or secondary group using the ID sets
             const isPrimary = primaryStudentIds.has(student.student_id);
+
+            // NEW: Determine group type
+            const groupType: "A" | "B" = isPrimary ? "A" : "B";
 
             const groupLabel = isPrimary
               ? `Y${examRoom.year_level_primary}-S${examRoom.sem_primary}-${examRoom.program_primary}${examRoom.specialization_primary ? ` (${examRoom.specialization_primary})` : ""}`
@@ -266,9 +263,9 @@ const SeatingGenerator: React.FC = () => {
               studentNumber: student.student_number,
               studentName: student.name,
               studentGroup: groupLabel,
+              groupType: groupType, // NEW: Add group type
             });
           } else {
-            // Assignment exists but no student (shouldn't happen)
             seats.push({
               seatNumber: assignment.seat_number,
               row: rowLabel,
@@ -277,7 +274,6 @@ const SeatingGenerator: React.FC = () => {
             });
           }
         } else {
-          // No assignment for this seat - it's empty
           const seatNumber = `${roomPrefix}-${rowIndex * cols + colIndex + 1}`;
           seats.push({
             seatNumber,
@@ -288,13 +284,6 @@ const SeatingGenerator: React.FC = () => {
         }
       }
     }
-
-    console.log(`Generated ${seats.length} total seats`);
-    console.log(`Occupied: ${seats.filter((s) => s.isOccupied).length}`);
-    console.log(
-      "Sample occupied seat:",
-      seats.find((s) => s.isOccupied),
-    );
 
     return seats;
   };
@@ -374,26 +363,12 @@ const SeatingGenerator: React.FC = () => {
     const rowLabels = "ABCDEFGHIJKLMNOPQRST".split("").slice(0, rows);
     const roomPrefix = roomNumber.replace(/\s/g, "");
 
-    console.log("=== convertSeatingAssignmentsToSeats DEBUG ===");
-    console.log("Assignments received:", assignments.length);
-    console.log("Room dimensions:", rows, "x", cols);
-    console.log("Room number:", roomNumber, "Prefix:", roomPrefix);
-    console.log("Sample assignment:", assignments[0]);
-
-    // Create a map for quick lookup by row_label and column_number
     const assignmentMap = new Map<string, SeatingAssignmentWithStudent>();
     assignments.forEach((assignment) => {
       const key = `${assignment.row_label}-${assignment.column_number}`;
       assignmentMap.set(key, assignment);
     });
 
-    console.log("Assignment map size:", assignmentMap.size);
-    console.log(
-      "First few map keys:",
-      Array.from(assignmentMap.keys()).slice(0, 5),
-    );
-
-    // Create all seats
     for (let rowIndex = 0; rowIndex < rows; rowIndex++) {
       const rowLabel = rowLabels[rowIndex];
 
@@ -411,9 +386,9 @@ const SeatingGenerator: React.FC = () => {
             studentNumber: assignment.student.student_number,
             studentName: assignment.student.name,
             studentGroup: `Y${assignment.student.year_level}-S${assignment.student.sem}-${assignment.student.major}${assignment.student.specialization ? ` (${assignment.student.specialization})` : ""}`,
+            groupType: assignment.student_group, // NEW: Add group type from database
           });
         } else {
-          // Empty seat
           const seatIndex = rowIndex * cols + (col - 1) + 1;
           const seatNumber = `${roomPrefix}-${seatIndex}`;
           seats.push({
@@ -426,17 +401,8 @@ const SeatingGenerator: React.FC = () => {
       }
     }
 
-    console.log("Total seats created:", seats.length);
-    console.log("Occupied seats:", seats.filter((s) => s.isOccupied).length);
-    console.log(
-      "Sample occupied seat:",
-      seats.find((s) => s.isOccupied),
-    );
-    console.log("=== END DEBUG ===");
-
     return seats;
   };
-
   /**
    * View existing seating plan
    */
@@ -657,6 +623,7 @@ const SeatingGenerator: React.FC = () => {
           seat_number: seat.seatNumber,
           row_label: seat.row,
           column_number: seat.column,
+          student_group: seat.groupType || "A", // NEW: Include student_group
         }));
 
       console.log(`Saving ${assignments.length} seating assignments...`);
@@ -667,8 +634,6 @@ const SeatingGenerator: React.FC = () => {
         toast.success(
           `Successfully saved ${assignments.length} seating assignments!`,
         );
-
-        // Refresh exam rooms to update assignment status
         await loadExamRooms();
       } else {
         toast.error("Failed to save seating assignments");
@@ -713,6 +678,7 @@ const SeatingGenerator: React.FC = () => {
         "Student Number",
         "Student Name",
         "Student Group",
+        "Group Type", // NEW: Add Group Type column
         "Status",
       ];
 
@@ -723,6 +689,7 @@ const SeatingGenerator: React.FC = () => {
         seat.studentNumber || "N/A",
         seat.studentName || "N/A",
         seat.studentGroup || "N/A",
+        seat.groupType || "N/A", // NEW: Include group type in export
         seat.isOccupied ? "Assigned" : "Vacant",
       ]);
 
@@ -730,8 +697,8 @@ const SeatingGenerator: React.FC = () => {
         `Seating Plan - Room ${selectedExamRoom.room.room_number}`,
         `Generated on: ${new Date().toLocaleString()}`,
         "",
-        `Primary Group: Y${selectedExamRoom.year_level_primary}-S${selectedExamRoom.sem_primary}-${selectedExamRoom.program_primary}${selectedExamRoom.specialization_primary ? ` (${selectedExamRoom.specialization_primary})` : ""} (${selectedExamRoom.students_primary} students)`,
-        `Secondary Group: Y${selectedExamRoom.year_level_secondary}-S${selectedExamRoom.sem_secondary}-${selectedExamRoom.program_secondary}${selectedExamRoom.specialization_secondary ? ` (${selectedExamRoom.specialization_secondary})` : ""} (${selectedExamRoom.students_secondary} students)`,
+        `Primary Group (A): Y${selectedExamRoom.year_level_primary}-S${selectedExamRoom.sem_primary}-${selectedExamRoom.program_primary}${selectedExamRoom.specialization_primary ? ` (${selectedExamRoom.specialization_primary})` : ""} (${selectedExamRoom.students_primary} students)`,
+        `Secondary Group (B): Y${selectedExamRoom.year_level_secondary}-S${selectedExamRoom.sem_secondary}-${selectedExamRoom.program_secondary}${selectedExamRoom.specialization_secondary ? ` (${selectedExamRoom.specialization_secondary})` : ""} (${selectedExamRoom.students_secondary} students)`,
         "",
         `Total Assigned: ${selectedExamRoom.assigned_capacity} / ${selectedExamRoom.room.capacity}`,
         "",

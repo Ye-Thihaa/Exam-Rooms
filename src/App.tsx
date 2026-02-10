@@ -26,7 +26,7 @@ import RoomAssignment from "./pages/exam-officer/RoomAssignment";
 import SeatingGenerator from "./pages/exam-officer/SeatingGenerator";
 import ExamSchedule from "./pages/exam-officer/Examschedule";
 import RoomManagement from "./pages/exam-officer/RoomManagement";
-import TeacherView from "./pages/exam-officer/TeacherView"
+import TeacherView from "./pages/exam-officer/TeacherView";
 // Invigilator Pages
 import InvigilatorDashboard from "./pages/invigilator/InvigilatorDashboard";
 import AssignedExams from "./pages/invigilator/AssignedExams";
@@ -41,6 +41,7 @@ import StudentSeat from "./pages/student/StudentSeat";
 import StudentExams from "./pages/student/StudentExams";
 
 import NotFound from "./pages/NotFound";
+import SpecialExamSeatingAssignment from "./pages/exam-officer/SpecialExamSeatingAssignment";
 
 const queryClient = new QueryClient();
 
@@ -179,7 +180,14 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
-
+            <Route
+              path="/exam-officer/special-exams"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <SpecialExamSeatingAssignment />
+                </ProtectedRoute>
+              }
+            />
             {/* Invigilator Routes */}
             <Route
               path="/invigilator"
