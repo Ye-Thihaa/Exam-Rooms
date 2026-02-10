@@ -165,9 +165,7 @@ const ExamsOverview: React.FC = () => {
     examTime?: { start: string; end: string };
   } | null>(null);
 
-  const [assignmentCounts, setAssignmentCounts] = useState<
-    Record<number, number>
-  >({});
+  const [assignmentCounts, setAssignmentCounts] = useState<Record<number, number>>({});
 
   // ─── Load assignment counts on mount ────────────────────────
   useEffect(() => {
@@ -241,10 +239,7 @@ const ExamsOverview: React.FC = () => {
           const roomsResult = await examRoomQueries.getRoomsByDate(date);
 
           if (!roomsResult.success) {
-            console.error(
-              `Failed to load rooms for ${date}:`,
-              roomsResult.error,
-            );
+            console.error(`Failed to load rooms for ${date}:`, roomsResult.error);
             continue;
           }
 
@@ -272,8 +267,7 @@ const ExamsOverview: React.FC = () => {
                 }
               : null,
             totalStudents:
-              (examRoom.students_primary || 0) +
-              (examRoom.students_secondary || 0),
+              (examRoom.students_primary || 0) + (examRoom.students_secondary || 0),
           }));
 
           dateGroups.push({
@@ -333,9 +327,7 @@ const ExamsOverview: React.FC = () => {
         const examYearNum = yearLevelToNumber(exam.year_level);
         const examSemNum = semesterToNumber(exam.semester);
 
-        const groupSpec = normalizeSpecializationCode(
-          group.specialization || "",
-        );
+        const groupSpec = normalizeSpecializationCode(group.specialization || "");
         const examSpec = normalizeSpecializationCode(exam.specialization || "");
 
         return (
@@ -586,16 +578,12 @@ const ExamsOverview: React.FC = () => {
                           variant="outline"
                           size="sm"
                           className="w-full"
-                          onClick={(e) =>
-                            handleAssignTeachers(e, room, dateGroup.examDate)
-                          }
+                          onClick={(e) => handleAssignTeachers(e, room, dateGroup.examDate)}
                         >
                           <Users className="h-4 w-4 mr-2" />
                           {assignmentCounts[room.examRoomId] > 0
                             ? `${assignmentCounts[room.examRoomId]} Invigilator${
-                                assignmentCounts[room.examRoomId] !== 1
-                                  ? "s"
-                                  : ""
+                                assignmentCounts[room.examRoomId] !== 1 ? "s" : ""
                               } Assigned`
                             : "Assign Invigilators"}
                         </Button>

@@ -1,0 +1,16 @@
+*   [33m4eeeaca[m[33m ([m[1;31morigin/dev[m[33m, [m[1;31morigin/HEAD[m[33m)[m Merge pull request #17 from Ye-Thihaa/feat/seat-dynamic
+[31m|[m[32m\[m  
+[31m|[m * [33mc0e1c95[m seating plan ui with adjustments
+* [32m|[m [33m438124c[m Merge pull request #16 from Ye-Thihaa/feat/seat-dynamic
+[33m|[m[32m\[m[32m|[m 
+[33m|[m * [33m92795dc[m Assigned Stu Display
+[33m|[m * [33m1ed2bba[m Seating Assignments w db
+* [34m|[m [33m60a0ae4[m Merge pull request #15 from Ye-Thihaa/feat/teacher-assignments
+[35m|[m[34m\[m[34m|[m 
+[35m|[m * [33m693ce78[m Teacher Assignments
+* [36m|[m [33mc63a2bc[m[33m ([m[1;32ma[m[33m)[m Merge pull request #14 from Ye-Thihaa/feat/sr02
+[1;31m|[m[36m\[m[36m|[m 
+[1;31m|[m * [33mcca36bf[m conflict solved
+[1;31m|[m * [33m7ee156b[m Spec Col Integration
+* [33m233db68[m Merge pull request #13 from Ye-Thihaa/feat/teacherAssignment
+* [33m499eabe[m[33m ([m[1;31morigin/feat/teacherAssignment[m[33m)[m full system documentation
