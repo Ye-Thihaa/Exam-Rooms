@@ -69,27 +69,33 @@ export const teacherAssignmentQueries = {
     session: ExamSession
   ): Promise<TeacherAvailability> {
     // Get all assignments for this teacher on the same date and session
+    // exam_date and session are already in teacher_assignment table
     const { data: assignments, error } = await supabase
       .from('teacher_assignment')
       .select(`
-        *,
-        exam_room:exam_room_id (
+        assignment_id,
+        teacher_id,
+        exam_room_id,
+        role,
+        session,
+        exam_date,
+        shift_start,
+        shift_end,
+        exam_room!inner (
           exam_room_id,
-          exam_date,
-          room:room_id (
+          room_id,
+          room!inner (
             room_number
           )
         )
       `)
-      .eq('teacher_id', teacherId);
+      .eq('teacher_id', teacherId)
+      .eq('exam_date', examDate)
+      .eq('session', session);
 
     if (error) throw error;
 
-    // Filter assignments that match the date and session
-    const conflicts = (assignments || []).filter((a: any) => {
-      return a.exam_room?.exam_date === examDate && a.session === session;
-    });
-
+    const conflicts = assignments || [];
     const is_available = conflicts.length === 0;
     const conflict_reason = is_available
       ? null
@@ -100,7 +106,7 @@ export const teacherAssignmentQueries = {
       is_available,
       conflict_reason,
       current_assignments: conflicts.map((c: any) => ({
-        exam_date: c.exam_room?.exam_date || '',
+        exam_date: c.exam_date || '',
         session: c.session || 'Unknown',
         room_number: c.exam_room?.room?.room_number || 'Unknown',
         role: c.role
@@ -341,17 +347,17 @@ export const teacherAssignmentQueries = {
       .from('teacher_assignment')
       .select(`
         *,
-        teacher:teacher_id (
+        teacher!inner (
           teacher_id,
           name,
           rank,
           department,
           total_periods_assigned
         ),
-        exam_room:exam_room_id (
+        exam_room!inner (
           exam_room_id,
           exam_date,
-          room:room_id (
+          room!inner (
             room_number,
             capacity
           )
@@ -415,10 +421,10 @@ export const teacherAssignmentQueries = {
       .from('teacher_assignment')
       .select(`
         *,
-        exam_room:exam_room_id (
+        exam_room!inner (
           exam_room_id,
           exam_date,
-          room:room_id (
+          room!inner (
             room_number,
             capacity
           )
