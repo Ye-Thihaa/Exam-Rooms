@@ -19,6 +19,7 @@ import {
   Settings,
   ChevronDown,
   Armchair,
+  History,
   LoaderCircle,
   LayoutGrid,
 } from "lucide-react";
@@ -59,7 +60,7 @@ const roleNavItems: Record<string, NavItem[]> = {
     },
     { icon: LayoutGrid, label: "Seating Plans", path: "/exam-officer/seating" },
     {
-      icon: LoaderCircle,
+      icon: History,
       label: "Special Exams",
       path: "/exam-officer/special-exams",
     },
@@ -69,7 +70,7 @@ const roleNavItems: Record<string, NavItem[]> = {
       path: "/exam-officer/teacher-assignments",
     },
     {
-      icon: BookOpen,
+      icon: Users,
       label: "Teacher ",
       path: "/exam-officer/teacher-view",
     },
