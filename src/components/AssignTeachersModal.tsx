@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
   X,
   Users,
-  Clock,
-  AlertCircle,
   CheckCircle2,
-  AlertTriangle,
-  TrendingUp,
+  Search,
+  UserPlus,
+  Loader2,
+  UserCheck,
+  AlertCircle,
+  Save
 } from "lucide-react";
 import { teacherAssignmentQueries } from "@/services/teacherassignmentQueries";
 import {
@@ -27,6 +31,107 @@ interface AssignTeachersModalProps {
   onSuccess: () => void;
 }
 
+// Helper Component for List Selection
+const TeacherSelector = ({ 
+  teachers, 
+  selectedId,
+  onSelect, 
+  roleLabel 
+}: {
+  teachers: TeacherWithAvailability[];
+  selectedId: number | null;
+  onSelect: (teacherId: number) => void;
+  roleLabel: string;
+}) => {
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const filteredTeachers = teachers.filter(t => 
+    t.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    t.department.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  return (
+    <div className="flex flex-col h-[350px] border rounded-md bg-white">
+      {/* Search Header */}
+      <div className="p-3 border-b bg-gray-50/50">
+        <div className="relative">
+          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder={`Search ${roleLabel.toLowerCase()}...`}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-8 bg-white"
+          />
+        </div>
+      </div>
+
+      {/* Scrollable List */}
+      <div className="flex-1 overflow-y-auto p-2 space-y-2">
+        {filteredTeachers.length === 0 ? (
+          <div className="text-center py-8 text-sm text-muted-foreground">
+            {searchTerm ? "No match found" : `No available ${roleLabel}s`}
+          </div>
+        ) : (
+          filteredTeachers.map((teacher) => {
+            const isSelected = selectedId === teacher.teacher_id;
+            
+            return (
+              <div
+                key={teacher.teacher_id}
+                onClick={() => teacher.availability.is_available && onSelect(teacher.teacher_id)}
+                className={`group flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all 
+                  ${isSelected 
+                    ? "bg-primary/5 border-primary ring-1 ring-primary/20" 
+                    : "hover:bg-accent hover:border-primary/30"
+                  }
+                  ${!teacher.availability.is_available ? "opacity-60 cursor-not-allowed bg-gray-50" : ""}
+                `}
+              >
+                <div className="flex-1 min-w-0 mr-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`font-medium text-sm truncate ${isSelected ? "text-primary" : "text-foreground"}`}>
+                      {teacher.name}
+                    </span>
+                    
+                  </div>
+                  
+                  <p className="text-xs text-muted-foreground truncate mb-1.5">
+                     {teacher.rank} • {teacher.department}
+                  </p>
+
+                  <div className="flex gap-2">
+                    <Badge 
+                      variant="secondary" 
+                      className="text-[10px] h-5 px-1.5 font-normal bg-gray-100 text-gray-600 border-gray-200"
+                    >
+                      {teacher.total_periods_assigned || 0} exams
+                    </Badge>
+                  </div>
+                </div>
+
+                {/* Selection Indicator */}
+                <div className={`
+                  h-8 w-8 rounded-full flex items-center justify-center transition-all
+                  ${isSelected 
+                    ? "bg-primary text-primary-foreground shadow-sm" 
+                    : "bg-transparent text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"
+                  }
+                `}>
+                  {isSelected ? (
+                    <CheckCircle2 className="h-5 w-5" />
+                  ) : (
+                    <div className={`h-4 w-4 rounded-full border-2 ${teacher.availability.is_available ? "border-current" : "border-gray-300"}`} />
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+};
+
 const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
   examRoomId,
   roomNumber,
@@ -39,93 +144,118 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
   const [status, setStatus] = useState<ExamRoomAssignmentStatus | null>(null);
   const [supervisors, setSupervisors] = useState<TeacherWithAvailability[]>([]);
   const [assistants, setAssistants] = useState<TeacherWithAvailability[]>([]);
-  const [selectedSupervisor, setSelectedSupervisor] = useState<number | null>(null);
-  const [selectedAssistant, setSelectedAssistant] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // ✅ Local Selection State (Pending Assignments)
+  const [selectedSupervisorId, setSelectedSupervisorId] = useState<number | null>(null);
+  const [selectedAssistantId, setSelectedAssistantId] = useState<number | null>(null);
+  
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  
+  const [activeExamRoomId, setActiveExamRoomId] = useState<number>(examRoomId);
+  const effectiveSession: ExamSession = examSession || 'Morning';
 
   useEffect(() => {
     loadData();
-  }, [examRoomId]);
+  }, [examRoomId, examDate, effectiveSession]);
 
   const loadData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const roomStatus = await teacherAssignmentQueries.getExamRoomStatus(examRoomId);
+      let currentId = examRoomId;
+      const correctId = await teacherAssignmentQueries.getCorrectExamRoomId(roomNumber, examDate, effectiveSession);
+      
+      if (correctId) {
+        currentId = correctId;
+        setActiveExamRoomId(correctId);
+      }
+
+      const roomStatus = await teacherAssignmentQueries.getExamRoomStatus(
+        currentId, 
+        examDate, 
+        effectiveSession
+      );
       setStatus(roomStatus);
 
       const [availableSupervisors, availableAssistants] = await Promise.all([
-        teacherAssignmentQueries.getAvailableTeachersWithSession(
-          examRoomId,
-          "Supervisor",
-          examDate,
-          examSession,
-        ),
-        teacherAssignmentQueries.getAvailableTeachersWithSession(
-          examRoomId,
-          "Assistant",
-          examDate,
-          examSession,
-        ),
+        teacherAssignmentQueries.getAvailableTeachersWithSession(currentId, "Supervisor", examDate, effectiveSession),
+        teacherAssignmentQueries.getAvailableTeachersWithSession(currentId, "Assistant", examDate, effectiveSession),
       ]);
 
       setSupervisors(availableSupervisors);
       setAssistants(availableAssistants);
+      
+      // Reset local selections on data reload
+      setSelectedSupervisorId(null);
+      setSelectedAssistantId(null);
     } catch (err: any) {
+      console.error(err);
       setError(err.message || "Failed to load teachers");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAssign = async (role: TeacherRole) => {
-    const teacherId = role === "Supervisor" ? selectedSupervisor : selectedAssistant;
-
-    if (!teacherId) {
-      setError(`Please select a ${role.toLowerCase()}`);
-      return;
-    }
+  // ✅ New Batch Save Function
+  const handleSaveChanges = async () => {
+    if (!selectedSupervisorId && !selectedAssistantId) return;
 
     setSubmitting(true);
     setError(null);
     setSuccessMessage(null);
 
+    const promises = [];
+
     try {
-      await teacherAssignmentQueries.create(
-        examRoomId,
-        teacherId,
-        role,
-        examDate,
-        examSession,
-        examTime?.start,
-        examTime?.end,
-      );
+      if (selectedSupervisorId) {
+        promises.push(
+          teacherAssignmentQueries.create(
+            activeExamRoomId,
+            selectedSupervisorId,
+            "Supervisor",
+            examDate,
+            effectiveSession,
+            examTime?.start,
+            examTime?.end
+          )
+        );
+      }
 
-      setSuccessMessage(`${role} assigned successfully!`);
-      if (role === "Supervisor") setSelectedSupervisor(null);
-      else setSelectedAssistant(null);
+      if (selectedAssistantId) {
+        promises.push(
+          teacherAssignmentQueries.create(
+            activeExamRoomId,
+            selectedAssistantId,
+            "Assistant",
+            examDate,
+            effectiveSession,
+            examTime?.start,
+            examTime?.end
+          )
+        );
+      }
 
+      await Promise.all(promises);
+
+      setSuccessMessage("Assignments saved successfully!");
       await loadData();
       onSuccess();
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
-      setError(err.message || `Failed to assign ${role.toLowerCase()}`);
+      setError(err.message || "Failed to save assignments");
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleRemove = async (role: TeacherRole) => {
-    if (!window.confirm(`Are you sure you want to remove the ${role.toLowerCase()}?`)) return;
-
+    
     setSubmitting(true);
-    setError(null);
-
     try {
-      await teacherAssignmentQueries.deleteByRoomAndRole(examRoomId, role);
+      await teacherAssignmentQueries.deleteByRoomAndRole(activeExamRoomId, role);
       setSuccessMessage(`${role} removed successfully!`);
       await loadData();
       onSuccess();
@@ -137,23 +267,16 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
     }
   };
 
-  const getWorkloadColor = (level: "Light" | "Medium" | "High") => {
-    switch (level) {
-      case "Light": return "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400";
-      case "Medium": return "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400";
-      case "High": return "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400";
-    }
-  };
+  // Helper to check if we have unsaved changes
+  const hasUnsavedChanges = (selectedSupervisorId !== null) || (selectedAssistantId !== null);
 
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-        <div className="bg-card border rounded-lg max-w-3xl w-full p-6">
-          <div className="flex items-center justify-center py-12">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-              <p className="text-muted-foreground">Loading available teachers...</p>
-            </div>
+        <div className="bg-white p-8 rounded-lg shadow-lg">
+          <div className="flex flex-col items-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+            <p className="text-gray-500">Loading available teachers...</p>
           </div>
         </div>
       </div>
@@ -162,149 +285,129 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-card border rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white border rounded-lg max-w-5xl w-full max-h-[90vh] flex flex-col shadow-xl">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b sticky top-0 bg-card z-10">
+        <div className="flex items-center justify-between p-6 border-b bg-white z-10 rounded-t-lg">
           <div className="flex items-center gap-3">
             <Users className="h-5 w-5 text-primary" />
             <div>
-              <h2 className="text-xl font-semibold text-foreground">Assign Invigilators</h2>
-              <p className="text-sm text-muted-foreground">{roomNumber} • {examDate} • {examSession} Session</p>
+              <h2 className="text-xl font-semibold text-gray-900">Assign Invigilators</h2>
+              <p className="text-sm text-gray-500">{roomNumber} • {examDate} • {effectiveSession}</p>
             </div>
           </div>
           <Button variant="ghost" size="sm" onClick={onClose}><X className="h-5 w-5" /></Button>
         </div>
 
-        <div className="p-6 space-y-6">
+        {/* Scrollable Content */}
+        <div className="p-6 overflow-y-auto flex-1">
           {error && (
-            <div className="flex items-start gap-3 p-4 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive">
+            <div className="flex items-start gap-3 p-4 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive mb-6">
               <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
               <div className="flex-1"><p className="font-medium">Error</p><p className="text-sm">{error}</p></div>
             </div>
           )}
 
           {successMessage && (
-            <div className="flex items-start gap-3 p-4 rounded-lg border border-green-200 bg-green-50 dark:border-green-900/30 dark:bg-green-900/10 text-green-600 dark:text-green-400">
+            <div className="flex items-start gap-3 p-4 rounded-lg border border-green-200 bg-green-50 text-green-700 mb-6">
               <CheckCircle2 className="h-5 w-5 flex-shrink-0 mt-0.5" />
               <div className="flex-1"><p className="font-medium">{successMessage}</p></div>
             </div>
           )}
 
-          {examTime && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Exam Time: {examTime.start} - {examTime.end}</span>
-            </div>
-          )}
-
-          {/* Status Banner */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className={`p-4 rounded-lg border ${status?.hasSupervisor ? "border-green-200 bg-green-50 dark:border-green-900/30 dark:bg-green-900/10" : "border-orange-200 bg-orange-50 dark:border-orange-900/30 dark:bg-orange-900/10"}`}>
-              <p className="text-sm font-medium mb-1">Supervisor</p>
-              <p className={`text-xs ${status?.hasSupervisor ? "text-green-600 dark:text-green-400" : "text-orange-600 dark:text-orange-400"}`}>
-                {status?.hasSupervisor ? "✓ Assigned" : "⚠ Not Assigned"}
-              </p>
-            </div>
-            <div className={`p-4 rounded-lg border ${status?.hasAssistant ? "border-green-200 bg-green-50 dark:border-green-900/30 dark:bg-green-900/10" : "border-orange-200 bg-orange-50 dark:border-orange-900/30 dark:bg-orange-900/10"}`}>
-              <p className="text-sm font-medium mb-1">Assistant</p>
-              <p className={`text-xs ${status?.hasAssistant ? "text-green-600 dark:text-green-400" : "text-orange-600 dark:text-orange-400"}`}>
-                {status?.hasAssistant ? "✓ Assigned" : "⚠ Not Assigned"}
-              </p>
-            </div>
-          </div>
-
-          {/* Supervisor Assignment */}
-          <div className="border rounded-lg p-4">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="font-semibold text-foreground">Supervisor</h3>
-                <p className="text-xs text-muted-foreground">Professors and Associate Professors only</p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            {/* --- SUPERVISOR SECTION --- */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                    Supervisor
+                    {status?.hasSupervisor && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">Professors & Associate Professors</p>
+                </div>
+                {status?.hasSupervisor && (
+                  <Button variant="destructive" size="sm" onClick={() => handleRemove("Supervisor")} disabled={submitting}>
+                    Remove
+                  </Button>
+                )}
               </div>
-              {status?.hasSupervisor && (
-                <Button variant="destructive" size="sm" onClick={() => handleRemove("Supervisor")} disabled={submitting}>Remove</Button>
+
+              {!status?.hasSupervisor ? (
+                <TeacherSelector 
+                  teachers={supervisors} 
+                  roleLabel="Supervisor"
+                  selectedId={selectedSupervisorId}
+                  onSelect={setSelectedSupervisorId}
+                />
+              ) : (
+                <div className="p-4 rounded-lg bg-green-50 border border-green-100 flex items-start gap-3">
+                  <div className="p-2 bg-green-100 rounded-full text-green-600">
+                    <UserCheck className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-green-900">{status.supervisorName}</p>
+                    <p className="text-xs text-green-700 mt-0.5">Assigned Supervisor</p>
+                  </div>
+                </div>
               )}
             </div>
 
-            {!status?.hasSupervisor ? (
-              <>
-                <select
-                  className="w-full px-3 py-2 border rounded-lg mb-3 focus:outline-none focus:ring-2 focus:ring-primary"
-                  value={selectedSupervisor || ""}
-                  onChange={(e) => setSelectedSupervisor(Number(e.target.value) || null)}
-                  disabled={submitting}
-                >
-                  <option value="">Select a supervisor...</option>
-                  {supervisors.map((teacher) => (
-                    <option key={teacher.teacher_id} value={teacher.teacher_id} disabled={!teacher.availability.is_available}>
-                      {teacher.name} - {teacher.rank} ({teacher.department}) • {teacher.workload_level} workload ({teacher.total_periods_assigned || 0} exams) {!teacher.availability.is_available && " - UNAVAILABLE"}
-                    </option>
-                  ))}
-                </select>
-                <Button onClick={() => handleAssign("Supervisor")} disabled={!selectedSupervisor || submitting} className="w-full">
-                  {submitting ? "Assigning..." : "Assign Supervisor"}
-                </Button>
-              </>
-            ) : (
-              // ✅ DISPLAY SUPERVISOR NAME
-              <div className="p-3 rounded-lg bg-green-50/50 border border-green-100">
-                <p className="text-sm font-medium text-green-900">✓ {status.supervisorName}</p>
-                <p className="text-xs text-green-700">Supervisor Assigned</p>
+            {/* --- ASSISTANT SECTION --- */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                    Assistant
+                    {status?.hasAssistant && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">Lecturers & Instructors</p>
+                </div>
+                {status?.hasAssistant && (
+                  <Button variant="destructive" size="sm" onClick={() => handleRemove("Assistant")} disabled={submitting}>
+                    Remove
+                  </Button>
+                )}
               </div>
-            )}
-          </div>
 
-          {/* Assistant Assignment */}
-          <div className="border rounded-lg p-4">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="font-semibold text-foreground">Assistant</h3>
-                <p className="text-xs text-muted-foreground">Lecturers, Assistant Professors, and Instructors only</p>
-              </div>
-              {status?.hasAssistant && (
-                <Button variant="destructive" size="sm" onClick={() => handleRemove("Assistant")} disabled={submitting}>Remove</Button>
+              {!status?.hasAssistant ? (
+                <TeacherSelector 
+                  teachers={assistants} 
+                  roleLabel="Assistant"
+                  selectedId={selectedAssistantId}
+                  onSelect={setSelectedAssistantId}
+                />
+              ) : (
+                <div className="p-4 rounded-lg bg-green-50 border border-green-100 flex items-start gap-3">
+                  <div className="p-2 bg-green-100 rounded-full text-green-600">
+                    <UserCheck className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-green-900">{status.assistantName}</p>
+                    <p className="text-xs text-green-700 mt-0.5">Assigned Assistant</p>
+                  </div>
+                </div>
               )}
             </div>
 
-            {!status?.hasAssistant ? (
-              <>
-                <select
-                  className="w-full px-3 py-2 border rounded-lg mb-3 focus:outline-none focus:ring-2 focus:ring-primary"
-                  value={selectedAssistant || ""}
-                  onChange={(e) => setSelectedAssistant(Number(e.target.value) || null)}
-                  disabled={submitting}
-                >
-                  <option value="">Select an assistant...</option>
-                  {assistants.map((teacher) => (
-                    <option key={teacher.teacher_id} value={teacher.teacher_id} disabled={!teacher.availability.is_available}>
-                      {teacher.name} - {teacher.rank} ({teacher.department}) • {teacher.workload_level} workload ({teacher.total_periods_assigned || 0} exams) {!teacher.availability.is_available && " - UNAVAILABLE"}
-                    </option>
-                  ))}
-                </select>
-                <Button onClick={() => handleAssign("Assistant")} disabled={!selectedAssistant || submitting} className="w-full">
-                  {submitting ? "Assigning..." : "Assign Assistant"}
-                </Button>
-              </>
-            ) : (
-              // ✅ DISPLAY ASSISTANT NAME
-              <div className="p-3 rounded-lg bg-green-50/50 border border-green-100">
-                <p className="text-sm font-medium text-green-900">✓ {status.assistantName}</p>
-                <p className="text-xs text-green-700">Assistant Assigned</p>
-              </div>
-            )}
           </div>
-
-          {status?.isFullyStaffed && (
-            <div className="p-4 rounded-lg border border-green-200 bg-green-50 dark:border-green-900/30 dark:bg-green-900/10">
-              <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
-                <CheckCircle2 className="h-5 w-5" />
-                <p className="font-medium">This exam room is fully staffed!</p>
-              </div>
-            </div>
-          )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 p-6 border-t bg-muted/30">
-          <Button variant="outline" onClick={onClose}>Close</Button>
+        {/* Footer with Save Button */}
+        <div className="p-6 border-t bg-gray-50 flex justify-end gap-3 rounded-b-lg">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button 
+            onClick={handleSaveChanges} 
+            disabled={!hasUnsavedChanges || submitting}
+            className="w-32"
+          >
+            {submitting ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <Save className="h-4 w-4 mr-2" />
+            )}
+            {submitting ? "Saving..." : "Confirm"}
+          </Button>
         </div>
       </div>
     </div>
