@@ -21,7 +21,7 @@ export const mockUsers: User[] = [
   {
     id: "2",
     email: "examofficer@university.edu",
-    password: "officer123",
+    password: "u!T3x@m0ff!c3R",
     name: "EXAM-OFFICER",
     role: "exam_officer",
     department: "Examination Office",
