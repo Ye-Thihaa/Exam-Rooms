@@ -11,7 +11,7 @@ import {
   Loader2,
   UserCheck,
   AlertCircle,
-  Save
+  Save,
 } from "lucide-react";
 import { teacherAssignmentQueries } from "@/services/teacherassignmentQueries";
 import {
@@ -25,18 +25,18 @@ interface AssignTeachersModalProps {
   examRoomId: number;
   roomNumber: string;
   examDate: string;
-  examSession: ExamSession; 
+  examSession: ExamSession;
   examTime?: { start: string; end: string };
   onClose: () => void;
   onSuccess: () => void;
 }
 
 // Helper Component for List Selection
-const TeacherSelector = ({ 
-  teachers, 
+const TeacherSelector = ({
+  teachers,
   selectedId,
-  onSelect, 
-  roleLabel 
+  onSelect,
+  roleLabel,
 }: {
   teachers: TeacherWithAvailability[];
   selectedId: number | null;
@@ -45,9 +45,10 @@ const TeacherSelector = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
 
-  const filteredTeachers = teachers.filter(t => 
-    t.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    t.department.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredTeachers = teachers.filter(
+    (t) =>
+      t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      t.department.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
   return (
@@ -74,34 +75,39 @@ const TeacherSelector = ({
         ) : (
           filteredTeachers.map((teacher) => {
             const isSelected = selectedId === teacher.teacher_id;
-            
+
             return (
               <div
                 key={teacher.teacher_id}
-                onClick={() => teacher.availability.is_available && onSelect(teacher.teacher_id)}
+                onClick={() =>
+                  teacher.availability.is_available &&
+                  onSelect(teacher.teacher_id)
+                }
                 className={`group flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all 
-                  ${isSelected 
-                    ? "bg-primary/5 border-primary ring-1 ring-primary/20" 
-                    : "hover:bg-accent hover:border-primary/30"
+                  ${
+                    isSelected
+                      ? "bg-primary/5 border-primary ring-1 ring-primary/20"
+                      : "hover:bg-accent hover:border-primary/30"
                   }
                   ${!teacher.availability.is_available ? "opacity-60 cursor-not-allowed bg-gray-50" : ""}
                 `}
               >
                 <div className="flex-1 min-w-0 mr-3">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className={`font-medium text-sm truncate ${isSelected ? "text-primary" : "text-foreground"}`}>
+                    <span
+                      className={`font-medium text-sm truncate ${isSelected ? "text-primary" : "text-foreground"}`}
+                    >
                       {teacher.name}
                     </span>
-                    
                   </div>
-                  
+
                   <p className="text-xs text-muted-foreground truncate mb-1.5">
-                     {teacher.rank} • {teacher.department}
+                    {teacher.rank} • {teacher.department}
                   </p>
 
                   <div className="flex gap-2">
-                    <Badge 
-                      variant="secondary" 
+                    <Badge
+                      variant="secondary"
                       className="text-[10px] h-5 px-1.5 font-normal bg-gray-100 text-gray-600 border-gray-200"
                     >
                       {teacher.total_periods_assigned || 0} exams
@@ -110,17 +116,22 @@ const TeacherSelector = ({
                 </div>
 
                 {/* Selection Indicator */}
-                <div className={`
+                <div
+                  className={`
                   h-8 w-8 rounded-full flex items-center justify-center transition-all
-                  ${isSelected 
-                    ? "bg-primary text-primary-foreground shadow-sm" 
-                    : "bg-transparent text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"
+                  ${
+                    isSelected
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "bg-transparent text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"
                   }
-                `}>
+                `}
+                >
                   {isSelected ? (
                     <CheckCircle2 className="h-5 w-5" />
                   ) : (
-                    <div className={`h-4 w-4 rounded-full border-2 ${teacher.availability.is_available ? "border-current" : "border-gray-300"}`} />
+                    <div
+                      className={`h-4 w-4 rounded-full border-2 ${teacher.availability.is_available ? "border-current" : "border-gray-300"}`}
+                    />
                   )}
                 </div>
               </div>
@@ -145,17 +156,21 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
   const [supervisors, setSupervisors] = useState<TeacherWithAvailability[]>([]);
   const [assistants, setAssistants] = useState<TeacherWithAvailability[]>([]);
   const [loading, setLoading] = useState(true);
-  
+
   // ✅ Local Selection State (Pending Assignments)
-  const [selectedSupervisorId, setSelectedSupervisorId] = useState<number | null>(null);
-  const [selectedAssistantId, setSelectedAssistantId] = useState<number | null>(null);
-  
+  const [selectedSupervisorId, setSelectedSupervisorId] = useState<
+    number | null
+  >(null);
+  const [selectedAssistantId, setSelectedAssistantId] = useState<number | null>(
+    null,
+  );
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  
+
   const [activeExamRoomId, setActiveExamRoomId] = useState<number>(examRoomId);
-  const effectiveSession: ExamSession = examSession || 'Morning';
+  const effectiveSession: ExamSession = examSession || "Morning";
 
   useEffect(() => {
     loadData();
@@ -166,28 +181,41 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
     setError(null);
     try {
       let currentId = examRoomId;
-      const correctId = await teacherAssignmentQueries.getCorrectExamRoomId(roomNumber, examDate, effectiveSession);
-      
+      const correctId = await teacherAssignmentQueries.getCorrectExamRoomId(
+        roomNumber,
+        examDate,
+        effectiveSession,
+      );
+
       if (correctId) {
         currentId = correctId;
         setActiveExamRoomId(correctId);
       }
 
       const roomStatus = await teacherAssignmentQueries.getExamRoomStatus(
-        currentId, 
-        examDate, 
-        effectiveSession
+        currentId,
+        examDate,
+        effectiveSession,
       );
       setStatus(roomStatus);
 
       const [availableSupervisors, availableAssistants] = await Promise.all([
-        teacherAssignmentQueries.getAvailableTeachersWithSession(currentId, "Supervisor", examDate, effectiveSession),
-        teacherAssignmentQueries.getAvailableTeachersWithSession(currentId, "Assistant", examDate, effectiveSession),
+        teacherAssignmentQueries.getAvailableTeachersWithSession(
+          currentId,
+          "Supervisor",
+          examDate,
+          effectiveSession,
+        ),
+        teacherAssignmentQueries.getAvailableTeachersWithSession(
+          currentId,
+          "Assistant",
+          examDate,
+          effectiveSession,
+        ),
       ]);
 
       setSupervisors(availableSupervisors);
       setAssistants(availableAssistants);
-      
       // Reset local selections on data reload
       setSelectedSupervisorId(null);
       setSelectedAssistantId(null);
@@ -199,7 +227,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
     }
   };
 
-  // ✅ New Batch Save Function
+  // ✅ Fixed Batch Save Function
   const handleSaveChanges = async () => {
     if (!selectedSupervisorId && !selectedAssistantId) return;
 
@@ -210,6 +238,24 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
     const promises = [];
 
     try {
+      // Delete existing assignments first to avoid unique constraint violation
+      if (selectedSupervisorId) {
+        await teacherAssignmentQueries.deleteByRoomAndRole(
+          activeExamRoomId,
+          "Supervisor",
+        );
+      }
+
+      if (selectedAssistantId) {
+        await teacherAssignmentQueries.deleteByRoomAndRole(
+          activeExamRoomId,
+          "Assistant",
+        );
+      }
+
+      // Now create the new assignments
+      const promises = [];
+
       if (selectedSupervisorId) {
         promises.push(
           teacherAssignmentQueries.create(
@@ -219,8 +265,8 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
             examDate,
             effectiveSession,
             examTime?.start,
-            examTime?.end
-          )
+            examTime?.end,
+          ),
         );
       }
 
@@ -233,8 +279,8 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
             examDate,
             effectiveSession,
             examTime?.start,
-            examTime?.end
-          )
+            examTime?.end,
+          ),
         );
       }
 
@@ -252,10 +298,12 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
   };
 
   const handleRemove = async (role: TeacherRole) => {
-    
     setSubmitting(true);
     try {
-      await teacherAssignmentQueries.deleteByRoomAndRole(activeExamRoomId, role);
+      await teacherAssignmentQueries.deleteByRoomAndRole(
+        activeExamRoomId,
+        role,
+      );
       setSuccessMessage(`${role} removed successfully!`);
       await loadData();
       onSuccess();
@@ -268,7 +316,8 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
   };
 
   // Helper to check if we have unsaved changes
-  const hasUnsavedChanges = (selectedSupervisorId !== null) || (selectedAssistantId !== null);
+  const hasUnsavedChanges =
+    selectedSupervisorId !== null || selectedAssistantId !== null;
 
   if (loading) {
     return (
@@ -291,11 +340,17 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
           <div className="flex items-center gap-3">
             <Users className="h-5 w-5 text-primary" />
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">Assign Invigilators</h2>
-              <p className="text-sm text-gray-500">{roomNumber} • {examDate} • {effectiveSession}</p>
+              <h2 className="text-xl font-semibold text-gray-900">
+                Assign Invigilators
+              </h2>
+              <p className="text-sm text-gray-500">
+                {roomNumber} • {examDate} • {effectiveSession}
+              </p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose}><X className="h-5 w-5" /></Button>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            <X className="h-5 w-5" />
+          </Button>
         </div>
 
         {/* Scrollable Content */}
@@ -303,39 +358,52 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
           {error && (
             <div className="flex items-start gap-3 p-4 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive mb-6">
               <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
-              <div className="flex-1"><p className="font-medium">Error</p><p className="text-sm">{error}</p></div>
+              <div className="flex-1">
+                <p className="font-medium">Error</p>
+                <p className="text-sm">{error}</p>
+              </div>
             </div>
           )}
 
           {successMessage && (
             <div className="flex items-start gap-3 p-4 rounded-lg border border-green-200 bg-green-50 text-green-700 mb-6">
               <CheckCircle2 className="h-5 w-5 flex-shrink-0 mt-0.5" />
-              <div className="flex-1"><p className="font-medium">{successMessage}</p></div>
+              <div className="flex-1">
+                <p className="font-medium">{successMessage}</p>
+              </div>
             </div>
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            
             {/* --- SUPERVISOR SECTION --- */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                     Supervisor
-                    {status?.hasSupervisor && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                    {status?.hasSupervisor && (
+                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    )}
                   </h3>
-                  <p className="text-xs text-muted-foreground">Professors & Associate Professors</p>
+                  <p className="text-xs text-muted-foreground">
+                    Professors & Associate Professors
+                  </p>
                 </div>
                 {status?.hasSupervisor && (
-                  <Button variant="destructive" size="sm" onClick={() => handleRemove("Supervisor")} disabled={submitting}>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleRemove("Supervisor")}
+                    disabled={submitting}
+                  >
                     Remove
                   </Button>
                 )}
               </div>
 
               {!status?.hasSupervisor ? (
-                <TeacherSelector 
-                  teachers={supervisors} 
+                <TeacherSelector
+                  teachers={supervisors}
                   roleLabel="Supervisor"
                   selectedId={selectedSupervisorId}
                   onSelect={setSelectedSupervisorId}
@@ -346,8 +414,12 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                     <UserCheck className="h-5 w-5" />
                   </div>
                   <div>
-                    <p className="font-semibold text-green-900">{status.supervisorName}</p>
-                    <p className="text-xs text-green-700 mt-0.5">Assigned Supervisor</p>
+                    <p className="font-semibold text-green-900">
+                      {status.supervisorName}
+                    </p>
+                    <p className="text-xs text-green-700 mt-0.5">
+                      Assigned Supervisor
+                    </p>
                   </div>
                 </div>
               )}
@@ -359,20 +431,29 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                 <div>
                   <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                     Assistant
-                    {status?.hasAssistant && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                    {status?.hasAssistant && (
+                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    )}
                   </h3>
-                  <p className="text-xs text-muted-foreground">Lecturers & Instructors</p>
+                  <p className="text-xs text-muted-foreground">
+                    Lecturers & Instructors
+                  </p>
                 </div>
                 {status?.hasAssistant && (
-                  <Button variant="destructive" size="sm" onClick={() => handleRemove("Assistant")} disabled={submitting}>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleRemove("Assistant")}
+                    disabled={submitting}
+                  >
                     Remove
                   </Button>
                 )}
               </div>
 
               {!status?.hasAssistant ? (
-                <TeacherSelector 
-                  teachers={assistants} 
+                <TeacherSelector
+                  teachers={assistants}
                   roleLabel="Assistant"
                   selectedId={selectedAssistantId}
                   onSelect={setSelectedAssistantId}
@@ -383,21 +464,26 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                     <UserCheck className="h-5 w-5" />
                   </div>
                   <div>
-                    <p className="font-semibold text-green-900">{status.assistantName}</p>
-                    <p className="text-xs text-green-700 mt-0.5">Assigned Assistant</p>
+                    <p className="font-semibold text-green-900">
+                      {status.assistantName}
+                    </p>
+                    <p className="text-xs text-green-700 mt-0.5">
+                      Assigned Assistant
+                    </p>
                   </div>
                 </div>
               )}
             </div>
-
           </div>
         </div>
 
         {/* Footer with Save Button */}
         <div className="p-6 border-t bg-gray-50 flex justify-end gap-3 rounded-b-lg">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button 
-            onClick={handleSaveChanges} 
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSaveChanges}
             disabled={!hasUnsavedChanges || submitting}
             className="w-32"
           >

@@ -1,24 +1,22 @@
-export type TeacherRole = 'Supervisor' | 'Assistant';
-export type ExamSession = 'Morning' | 'Afternoon' | 'Evening';
+export type TeacherRole = "Supervisor" | "Assistant";
+export type ExamSession = "Morning" | "Afternoon" | "Evening";
 
 // ✅ STRICTLY LIMITED TO YOUR 4 RANKS
-export type TeacherRank = 
-  | 'Associate Professor' 
-  | 'Lecturer'
-  | 'Associate Lecturer'
-  | 'Tutor';
+export type TeacherRank =
+  | "Associate Professor"
+  | "Lecturer"
+  | "Associate Lecturer"
+  | "Tutor";
 
 // ✅ Supervisor: Only Associate Professors
-export const SUPERVISOR_RANKS: TeacherRank[] = [
-  'Associate Professor'
-];
+export const SUPERVISOR_RANKS: TeacherRank[] = ["Associate Professor"];
 
 // ✅ Assistant: All ranks (including Tutors) can be assistants
 export const ASSISTANT_RANKS: TeacherRank[] = [
-  'Associate Professor',
-  'Lecturer',
-  'Associate Lecturer',
-  'Tutor'
+  "Associate Professor",
+  "Lecturer",
+  "Associate Lecturer",
+  "Tutor",
 ];
 
 export interface TeacherAssignment {
@@ -57,11 +55,14 @@ export interface Exam {
 }
 
 // Helper function to check if a teacher can be assigned a specific role
-export function canTeacherHaveRole(teacherRank: TeacherRank, role: TeacherRole): boolean {
-  if (role === 'Supervisor') {
+export function canTeacherHaveRole(
+  teacherRank: TeacherRank,
+  role: TeacherRole,
+): boolean {
+  if (role === "Supervisor") {
     return SUPERVISOR_RANKS.includes(teacherRank);
   }
-  if (role === 'Assistant') {
+  if (role === "Assistant") {
     return ASSISTANT_RANKS.includes(teacherRank);
   }
   return false;
@@ -70,15 +71,15 @@ export function canTeacherHaveRole(teacherRank: TeacherRank, role: TeacherRole):
 // Helper function to get eligible roles for a teacher based on their rank
 export function getEligibleRoles(teacherRank: TeacherRank): TeacherRole[] {
   const roles: TeacherRole[] = [];
-  
+
   if (SUPERVISOR_RANKS.includes(teacherRank)) {
-    roles.push('Supervisor');
+    roles.push("Supervisor");
   }
-  
+
   if (ASSISTANT_RANKS.includes(teacherRank)) {
-    roles.push('Assistant');
+    roles.push("Assistant");
   }
-  
+
   return roles;
 }
 
@@ -88,18 +89,20 @@ export interface TeacherWithCapability extends Teacher {
   eligibleRoles: TeacherRole[];
 }
 
-export function enrichTeacherWithCapability(teacher: Teacher): TeacherWithCapability {
+export function enrichTeacherWithCapability(
+  teacher: Teacher,
+): TeacherWithCapability {
   // Cast rank safely to ensure it matches the type
   const rank = teacher.rank as TeacherRank;
-  
+
   const canBeSupervisor = SUPERVISOR_RANKS.includes(rank);
   const canBeAssistant = ASSISTANT_RANKS.includes(rank);
-  
+
   return {
     ...teacher,
     canBeSupervisor,
     canBeAssistant,
-    eligibleRoles: getEligibleRoles(rank)
+    eligibleRoles: getEligibleRoles(rank),
   };
 }
 
@@ -109,8 +112,8 @@ export interface ExamRoomAssignmentStatus {
   hasAssistant: boolean;
   supervisorId: number | null;
   assistantId: number | null;
-  supervisorName?: string; 
-  assistantName?: string;  
+  supervisorName?: string;
+  assistantName?: string;
   isFullyStaffed: boolean;
 }
 
@@ -128,51 +131,66 @@ export interface TeacherAvailability {
 
 export interface TeacherWithAvailability extends TeacherWithCapability {
   availability: TeacherAvailability;
-  workload_level: 'Light' | 'Medium' | 'High';
+  workload_level: "Light" | "Medium" | "High";
 }
 
-export function getWorkloadLevel(periods: number | null): 'Light' | 'Medium' | 'High' {
+export function getWorkloadLevel(
+  periods: number | null,
+): "Light" | "Medium" | "High" {
   const p = periods || 0;
-  if (p >= 18) return 'High';
-  if (p >= 12) return 'Medium';
-  return 'Light';
+  if (p >= 18) return "High";
+  if (p >= 12) return "Medium";
+  return "Light";
 }
 
 export class TeacherAssignmentError extends Error {
-  constructor(message: string) { super(message); this.name = 'TeacherAssignmentError'; }
+  constructor(message: string) {
+    super(message);
+    this.name = "TeacherAssignmentError";
+  }
 }
 
 export class InvalidRoleError extends TeacherAssignmentError {
   constructor(teacherRank: TeacherRank, attemptedRole: TeacherRole) {
     super(`Invalid Role: ${teacherRank} cannot be ${attemptedRole}`);
-    this.name = 'InvalidRoleError';
+    this.name = "InvalidRoleError";
   }
 }
 
 export class RoleAlreadyFilledError extends TeacherAssignmentError {
   constructor(role: TeacherRole, examRoomId: number) {
     super(`Role ${role} is already filled for this room.`);
-    this.name = 'RoleAlreadyFilledError';
+    this.name = "RoleAlreadyFilledError";
   }
 }
 
 export class TimeConflictError extends TeacherAssignmentError {
-  constructor(teacherName: string, examDate: string, session: ExamSession, conflictingRoom?: string) {
+  constructor(
+    teacherName: string,
+    examDate: string,
+    session: ExamSession,
+    conflictingRoom?: string,
+  ) {
     super(`${teacherName} is busy on ${examDate} (${session}).`);
-    this.name = 'TimeConflictError';
+    this.name = "TimeConflictError";
   }
 }
 
 export function formatSession(session: ExamSession | null): string {
-  if (!session) return 'Unknown Session';
+  if (!session) return "Unknown Session";
   return session;
 }
 
-export function getSessionTimeRange(session: ExamSession | null): { start: string; end: string } | null {
+export function getSessionTimeRange(
+  session: ExamSession | null,
+): { start: string; end: string } | null {
   switch (session) {
-    case 'Morning': return { start: '08:00', end: '12:00' };
-    case 'Afternoon': return { start: '13:00', end: '17:00' };
-    
-    default: return null;
+    case "Morning":
+      return { start: "08:00", end: "12:00" };
+    case "Afternoon":
+      return { start: "13:00", end: "17:00" };
+
+    default:
+      return null;
   }
 }

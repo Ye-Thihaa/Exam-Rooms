@@ -2,285 +2,339 @@ import React, { useEffect, useState } from "react";
 import DashboardLayout from "@/components/layouts/DashboardLayout";
 import PageHeader from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Calendar, Clock, Users, MapPin, X } from "lucide-react";
+import {
+  Calendar,
+  Clock,
+  Users,
+  MapPin,
+  X,
+  BookOpen,
+  ChevronRight,
+  Sun,
+  Sunset,
+} from "lucide-react";
 import AssignTeachersModal from "@/components/AssignTeachersModal";
 import { teacherAssignmentQueries } from "@/services/teacherassignmentQueries";
-import { examQueries, Exam } from "@/services/examQueries";
 import {
-  examRoomQueries,
-  ExamRoomWithDetails,
-} from "@/services/examroomQueries";
+  examRoomLinkQueries,
+  type DateGroup,
+  type RoomCardData,
+} from "@/services/examRoomLinkQueries";
+import type { Exam } from "@/services/examQueries";
+import type { ExamSession } from "@/services/teacherAssignmentTypes";
 
-// ────────────────────────────────────────────────
-// Helper functions (unchanged)
-// ────────────────────────────────────────────────
-
-function yearLevelToNumber(yearLevel: string): number {
-  const parsed = parseInt(yearLevel, 10);
-  if (!isNaN(parsed)) return parsed;
-
-  const match = yearLevel.match(/(\w+)\s+Year/i);
-  if (!match) return 0;
-
-  const yearWord = match[1].toLowerCase();
-  const yearMap: Record<string, number> = {
-    first: 1,
-    second: 2,
-    third: 3,
-    fourth: 4,
-  };
-  return yearMap[yearWord] || 0;
-}
-
-function normalizeSpecializationCode(code: string): string {
-  const cleaned = (code || "").trim();
-
-  const specializationMap: Record<string, string> = {
-    CST: "CST",
-    CS: "CS",
-    CT: "CT",
-    SE: "Software Engineering",
-    KE: "Knowledge Engineering",
-    BIS: "Business Information Systems",
-    HPC: "High Performance Computing",
-    CN: "Communication and Networking",
-    ES: "Embedded Systems",
-    CSEC: "Cyber Security",
-    "Software Engineering": "Software Engineering",
-    "Knowledge Engineering": "Knowledge Engineering",
-    "Business Information Systems": "Business Information Systems",
-    "High Performance Computing": "High Performance Computing",
-    "Communication and Networking": "Communication and Networking",
-    "Embedded Systems": "Embedded Systems",
-    "Embedded System": "Embedded Systems",
-    "Cyber Security": "Cyber Security",
-  };
-
-  return specializationMap[cleaned] || cleaned;
-}
-
-function semesterToNumber(semester: string): number {
-  const parsed = parseInt(semester, 10);
-  if (!isNaN(parsed)) return parsed;
-
-  const s = (semester || "").toLowerCase();
-  if (s.includes("first")) return 1;
-  if (s.includes("second")) return 2;
-  return 0;
-}
-
-function getSemesterDisplay(yearLevel: string, semester: string): string {
-  return `Year ${yearLevel} - Semester ${semester}`;
-}
-
-function formatTime(t: string) {
-  if (!t) return "";
-  return t.length >= 5 ? t.slice(0, 5) : t;
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 function getTodayISO() {
   return new Date().toISOString().split("T")[0];
 }
-
 function deriveStatus(examDate: string): "scheduled" | "completed" {
-  const today = getTodayISO();
-  return examDate >= today ? "scheduled" : "completed";
+  return examDate >= getTodayISO() ? "scheduled" : "completed";
+}
+function fmtTime(t: string | undefined) {
+  if (!t) return "";
+  return t.length >= 5 ? t.slice(0, 5) : t;
 }
 
-// ────────────────────────────────────────────────
-// Types
-// ────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Session badge
+// ─────────────────────────────────────────────────────────────────────────────
 
-type ExamDateGroup = {
-  examDate: string;
-  dayOfWeek: string;
-  rooms: RoomSchedule[];
-};
+const SessionBadge: React.FC<{ session: ExamSession }> = ({ session }) => (
+  <span
+    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+      session === "Morning"
+        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+        : "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300"
+    }`}
+  >
+    {session === "Morning" ? (
+      <Sun className="h-2.5 w-2.5" />
+    ) : (
+      <Sunset className="h-2.5 w-2.5" />
+    )}
+    {session}
+  </span>
+);
 
-type RoomSchedule = {
-  roomId: number;
-  roomNumber: string;
-  roomCapacity: number;
-  examRoomId: number;
-  primaryGroup: {
-    yearLevel: string;
-    semester: string;
-    program?: string;
-    specialization?: string;
-  } | null;
-  secondaryGroup: {
-    yearLevel: string;
-    semester: string;
-    program?: string;
-    specialization?: string;
-  } | null;
-  totalStudents: number;
-};
+// ─────────────────────────────────────────────────────────────────────────────
+// Exam row (inside detail modal)
+// ─────────────────────────────────────────────────────────────────────────────
 
-type RoomExamDetail = {
-  roomNumber: string;
-  roomCapacity: number;
-  examDate: string;
-  dayOfWeek: string;
-  primaryExams: Array<{
-    subjectCode: string;
-    subjectName: string;
-    yearLevel: string;
-    semester: string;
-    program: string;
-    specialization: string | null;
-    students: number;
-    startTime: string;
-    endTime: string;
-  }>;
-  secondaryExams: Array<{
-    subjectCode: string;
-    subjectName: string;
-    yearLevel: string;
-    semester: string;
-    program: string;
-    specialization: string | null;
-    students: number;
-    startTime: string;
-    endTime: string;
-  }>;
-  totalStudents: number;
-};
+const ExamRow: React.FC<{ exam: Exam; badge: "primary" | "secondary" }> = ({
+  exam,
+  badge,
+}) => (
+  <div className="flex items-start gap-3 py-3 border-b last:border-0">
+    <span
+      className={`mt-0.5 shrink-0 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${
+        badge === "primary"
+          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+          : "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+      }`}
+    >
+      {badge}
+    </span>
+    <div className="flex-1 min-w-0">
+      <p className="text-sm font-semibold text-foreground truncate">
+        {exam.subject_code} — {exam.exam_name}
+      </p>
+      <p className="text-xs text-muted-foreground mt-0.5">
+        {exam.program}
+        {exam.specialization ? ` · ${exam.specialization}` : ""} | Y
+        {exam.year_level} S{exam.semester}
+      </p>
+    </div>
+    <div className="text-right shrink-0">
+      <p className="text-xs font-medium text-foreground flex items-center gap-1 justify-end">
+        <Clock className="h-3 w-3" />
+        {fmtTime(exam.start_time)} – {fmtTime(exam.end_time)}
+      </p>
+    </div>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Room detail modal (standalone — click on card body)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RoomDetailModal: React.FC<{
+  room: RoomCardData;
+  onClose: () => void;
+}> = ({ room, onClose }) => (
+  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className="bg-card border rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+      <div className="flex items-center justify-between p-6 border-b sticky top-0 bg-card z-10">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+            <MapPin className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-foreground">
+                Room {room.roomNumber}
+              </h2>
+              <SessionBadge session={room.examSession} />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {room.examDate} · {room.dayOfWeek} · Capacity: {room.roomCapacity}
+              {room.examTime && (
+                <>
+                  {" "}
+                  · {room.examTime.start} – {room.examTime.end}
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+        <Button variant="ghost" size="icon" onClick={onClose}>
+          <X className="h-5 w-5" />
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-3 divide-x border-b">
+        <div className="px-6 py-4 text-center">
+          <p className="text-2xl font-bold text-foreground">
+            {room.totalStudents}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Students Assigned
+          </p>
+        </div>
+        <div className="px-6 py-4 text-center">
+          <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+            {room.primaryExams.length}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Primary Subjects
+          </p>
+        </div>
+        <div className="px-6 py-4 text-center">
+          <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+            {room.secondaryExams.length}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Secondary Subjects
+          </p>
+        </div>
+      </div>
+
+      <div className="p-6">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+          <BookOpen className="h-4 w-4" />
+          Exams on {room.examDate}
+        </h3>
+        {room.primaryExams.length === 0 && room.secondaryExams.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No exams on this date.
+          </p>
+        ) : (
+          <div>
+            {room.primaryExams.map((e) => (
+              <ExamRow key={e.exam_id} exam={e} badge="primary" />
+            ))}
+            {room.secondaryExams.map((e) => (
+              <ExamRow key={e.exam_id} exam={e} badge="secondary" />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Room card
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RoomCard: React.FC<{
+  room: RoomCardData;
+  assignmentCount: number;
+  onCardClick: (room: RoomCardData) => void;
+  onAssignClick: (e: React.MouseEvent, room: RoomCardData) => void;
+}> = ({ room, assignmentCount, onCardClick, onAssignClick }) => (
+  <div className="border rounded-xl p-4 bg-background hover:shadow-md transition-all duration-200 flex flex-col gap-3">
+    <div className="cursor-pointer flex-1" onClick={() => onCardClick(room)}>
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+            <MapPin className="h-4 w-4 text-primary" />
+          </div>
+          <div>
+            <p className="font-bold text-foreground leading-tight">
+              {room.roomNumber}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Cap: {room.roomCapacity}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <SessionBadge session={room.examSession} />
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        </div>
+      </div>
+
+      {room.examTime && (
+        <div className="flex items-center gap-1 mb-2">
+          <Clock className="h-3 w-3 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">
+            {room.examTime.start} – {room.examTime.end}
+          </span>
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        {room.primaryGroupLabel && (
+          <div className="flex items-start gap-1.5">
+            <span className="mt-1 h-2 w-2 rounded-full bg-blue-500 shrink-0" />
+            <p className="text-xs text-muted-foreground leading-tight">
+              {room.primaryGroupLabel}
+            </p>
+          </div>
+        )}
+        {room.secondaryGroupLabel && (
+          <div className="flex items-start gap-1.5">
+            <span className="mt-1 h-2 w-2 rounded-full bg-green-500 shrink-0" />
+            <p className="text-xs text-muted-foreground leading-tight">
+              {room.secondaryGroupLabel}
+            </p>
+          </div>
+        )}
+        {!room.primaryGroupLabel && !room.secondaryGroupLabel && (
+          <p className="text-xs text-muted-foreground italic">
+            No groups linked
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 mt-3">
+        {room.primaryExams.length > 0 && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+            {room.primaryExams.length} primary subject
+            {room.primaryExams.length !== 1 ? "s" : ""}
+          </span>
+        )}
+        {room.secondaryExams.length > 0 && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">
+            {room.secondaryExams.length} secondary subject
+            {room.secondaryExams.length !== 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1.5 mt-3 pt-3 border-t">
+        <Users className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-semibold text-foreground">
+          {room.totalStudents} students
+        </span>
+      </div>
+    </div>
+
+    <Button
+      variant="outline"
+      size="sm"
+      className="w-full"
+      onClick={(e) => onAssignClick(e, room)}
+    >
+      <Users className="h-4 w-4 mr-2" />
+      {assignmentCount > 0
+        ? `${assignmentCount} Invigilator${assignmentCount !== 1 ? "s" : ""} Assigned`
+        : "Assign Invigilators"}
+    </Button>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main page
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Full room context passed to AssignTeachersModal — same shape as RoomCardData */
+type AssignmentTarget = RoomCardData;
 
 const ExamsOverview: React.FC = () => {
-  // ─── Existing states ────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [examDates, setExamDates] = useState<ExamDateGroup[]>([]);
-  const [selectedRoom, setSelectedRoom] = useState<RoomExamDetail | null>(null);
+  const [dateGroups, setDateGroups] = useState<DateGroup[]>([]);
+  const [selectedRoom, setSelectedRoom] = useState<RoomCardData | null>(null);
 
-  // ─── New states for teacher assignment ──────────────────────
   const [showAssignModal, setShowAssignModal] = useState(false);
-  const [selectedRoomForAssignment, setSelectedRoomForAssignment] = useState<{
-    examRoomId: number;
-    roomNumber: string;
-    examDate: string;
-    examTime?: { start: string; end: string };
-  } | null>(null);
+  const [assignTarget, setAssignTarget] = useState<AssignmentTarget | null>(
+    null,
+  );
+  const [assignmentCounts, setAssignmentCounts] = useState<
+    Record<string, number>
+  >({});
 
-  const [assignmentCounts, setAssignmentCounts] = useState<Record<number, number>>({});
-
-  // ─── Load assignment counts on mount ────────────────────────
-  useEffect(() => {
-    const loadAssignmentCounts = async () => {
-      try {
-        const allAssignments = await teacherAssignmentQueries.getAll();
-        const counts: Record<number, number> = {};
-
-        allAssignments.forEach((assignment) => {
-          counts[assignment.exam_room_id] =
-            (counts[assignment.exam_room_id] || 0) + 1;
-        });
-
-        setAssignmentCounts(counts);
-      } catch (error) {
-        console.error("Error loading assignment counts:", error);
-      }
-    };
-
-    loadAssignmentCounts();
-  }, []);
-
-  // ─── Refresh counts after successful assignment ─────────────
-  const handleAssignmentSuccess = async () => {
+  const loadAssignmentCounts = async () => {
     try {
-      const allAssignments = await teacherAssignmentQueries.getAll();
-      const counts: Record<number, number> = {};
-
-      allAssignments.forEach((assignment) => {
-        counts[assignment.exam_room_id] =
-          (counts[assignment.exam_room_id] || 0) + 1;
+      const all = await teacherAssignmentQueries.getAll();
+      const counts: Record<string, number> = {};
+      all.forEach((a) => {
+        const k = `${a.exam_room_id}-${a.exam_date || ""}`;
+        counts[k] = (counts[k] || 0) + 1;
       });
-
       setAssignmentCounts(counts);
-    } catch (error) {
-      console.error("Error refreshing assignment counts:", error);
+    } catch (err) {
+      console.error("Error loading assignment counts:", err);
     }
   };
 
-  // ─── Open assign teachers modal ─────────────────────────────
-  const handleAssignTeachers = (
-    e: React.MouseEvent,
-    room: RoomSchedule,
-    examDate: string,
-  ) => {
-    e.stopPropagation(); // Prevent opening room detail modal
-
-    setSelectedRoomForAssignment({
-      examRoomId: room.examRoomId,
-      roomNumber: room.roomNumber,
-      examDate: examDate,
-      examTime: undefined, // ← extend later if you have time info
-    });
-    setShowAssignModal(true);
-  };
-
-  // ─── Load exam schedule data (unchanged) ────────────────────
   useEffect(() => {
     let mounted = true;
-
     async function load() {
       setIsLoading(true);
       setErrorMsg(null);
-
       try {
-        const uniqueDates = await examQueries.getUniqueDates();
-        const dateGroups: ExamDateGroup[] = [];
-
-        for (const dateInfo of uniqueDates) {
-          const date = dateInfo.exam_date;
-          const roomsResult = await examRoomQueries.getRoomsByDate(date);
-
-          if (!roomsResult.success) {
-            console.error(`Failed to load rooms for ${date}:`, roomsResult.error);
-            continue;
-          }
-
-          const roomsOnDate = roomsResult.data?.[date] || [];
-
-          const rooms: RoomSchedule[] = roomsOnDate.map((examRoom) => ({
-            roomId: examRoom.room_id,
-            roomNumber: examRoom.room?.room_number || "Unknown",
-            roomCapacity: examRoom.room?.capacity || 0,
-            examRoomId: examRoom.exam_room_id || 0,
-            primaryGroup: examRoom.year_level_primary
-              ? {
-                  yearLevel: examRoom.year_level_primary,
-                  semester: examRoom.sem_primary || "",
-                  program: examRoom.program_primary || "",
-                  specialization: examRoom.specialization_primary || "",
-                }
-              : null,
-            secondaryGroup: examRoom.year_level_secondary
-              ? {
-                  yearLevel: examRoom.year_level_secondary,
-                  semester: examRoom.sem_secondary || "",
-                  program: examRoom.program_secondary || "",
-                  specialization: examRoom.specialization_secondary || "",
-                }
-              : null,
-            totalStudents:
-              (examRoom.students_primary || 0) + (examRoom.students_secondary || 0),
-          }));
-
-          dateGroups.push({
-            examDate: date,
-            dayOfWeek: dateInfo.day_of_week,
-            rooms,
-          });
-        }
-
+        const groups = await examRoomLinkQueries.getAllDateGroups();
         if (!mounted) return;
-        setExamDates(dateGroups);
+        setDateGroups(groups);
+        await loadAssignmentCounts();
       } catch (err: any) {
-        console.error(err);
         if (!mounted) return;
         setErrorMsg(err?.message ?? "Failed to load exam schedules");
       } finally {
@@ -288,122 +342,43 @@ const ExamsOverview: React.FC = () => {
         setIsLoading(false);
       }
     }
-
     load();
-
     return () => {
       mounted = false;
     };
   }, []);
 
-  // Room detail modal logic (unchanged) ...
-  const handleRoomClick = async (
-    roomId: number,
-    roomNumber: string,
-    roomCapacity: number,
-    examDate: string,
-    dayOfWeek: string,
-    roomSchedule: RoomSchedule,
-  ) => {
-    // ... (your existing implementation)
-    try {
-      const examsOnDate = await examQueries.getByDate(examDate);
-      const examRoomDetails = await examRoomQueries.getExamRoomById(
-        roomSchedule.examRoomId,
-      );
+  const handleCardClick = (room: RoomCardData) => setSelectedRoom(room);
 
-      const studentsPrimary = examRoomDetails.data?.students_primary || 0;
-      const studentsSecondary = examRoomDetails.data?.students_secondary || 0;
-
-      const matchesGroup = (
-        exam: Exam,
-        group: {
-          yearLevel: string;
-          semester: string;
-          program?: string;
-          specialization?: string;
-        },
-      ) => {
-        const examYearNum = yearLevelToNumber(exam.year_level);
-        const examSemNum = semesterToNumber(exam.semester);
-
-        const groupSpec = normalizeSpecializationCode(group.specialization || "");
-        const examSpec = normalizeSpecializationCode(exam.specialization || "");
-
-        return (
-          examYearNum.toString() === group.yearLevel &&
-          examSemNum.toString() === group.semester &&
-          exam.program === group.program &&
-          groupSpec === examSpec
-        );
-      };
-
-      const primaryExams = roomSchedule.primaryGroup
-        ? examsOnDate
-            .filter((e) => matchesGroup(e, roomSchedule.primaryGroup!))
-            .map((exam) => ({
-              subjectCode: exam.subject_code,
-              subjectName: exam.exam_name,
-              yearLevel: exam.year_level,
-              semester: exam.semester,
-              program: exam.program,
-              specialization: exam.specialization,
-              students: studentsPrimary,
-              startTime: formatTime(exam.start_time),
-              endTime: formatTime(exam.end_time),
-            }))
-        : [];
-
-      const secondaryExams = roomSchedule.secondaryGroup
-        ? examsOnDate
-            .filter((e) => matchesGroup(e, roomSchedule.secondaryGroup!))
-            .map((exam) => ({
-              subjectCode: exam.subject_code,
-              subjectName: exam.exam_name,
-              yearLevel: exam.year_level,
-              semester: exam.semester,
-              program: exam.program,
-              specialization: exam.specialization,
-              students: studentsSecondary,
-              startTime: formatTime(exam.start_time),
-              endTime: formatTime(exam.end_time),
-            }))
-        : [];
-
-      const totalStudentsOnDate =
-        (primaryExams.length > 0 ? studentsPrimary : 0) +
-        (secondaryExams.length > 0 ? studentsSecondary : 0);
-
-      setSelectedRoom({
-        roomNumber,
-        roomCapacity,
-        examDate,
-        dayOfWeek,
-        primaryExams,
-        secondaryExams,
-        totalStudents: totalStudentsOnDate,
-      });
-    } catch (error) {
-      console.error("Error fetching room details:", error);
-    }
+  const handleAssignClick = (e: React.MouseEvent, room: RoomCardData) => {
+    e.stopPropagation();
+    // Pass ALL room context so AssignTeachersModal can render the info card
+    setAssignTarget(room);
+    setShowAssignModal(true);
   };
 
-  const filteredDates = examDates.filter((dateGroup) => {
-    const status = deriveStatus(dateGroup.examDate);
-    const matchesStatus = statusFilter === "all" || status === statusFilter;
-
-    if (!matchesStatus) return false;
-
+  const filteredGroups = dateGroups.filter((group) => {
+    const status = deriveStatus(group.examDate);
+    if (statusFilter !== "all" && status !== statusFilter) return false;
     if (!searchQuery.trim()) return true;
-
     const q = searchQuery.trim().toLowerCase();
-    return dateGroup.rooms.some(
-      (room) =>
-        room.roomNumber.toLowerCase().includes(q) ||
-        room.primaryGroup?.program?.toLowerCase().includes(q) ||
-        room.primaryGroup?.specialization?.toLowerCase().includes(q) ||
-        room.secondaryGroup?.program?.toLowerCase().includes(q) ||
-        room.secondaryGroup?.specialization?.toLowerCase().includes(q),
+    return group.rooms.some(
+      (r) =>
+        r.roomNumber.toLowerCase().includes(q) ||
+        r.primaryExams.some(
+          (e) =>
+            e.program.toLowerCase().includes(q) ||
+            (e.specialization ?? "").toLowerCase().includes(q) ||
+            e.exam_name.toLowerCase().includes(q) ||
+            e.subject_code.toLowerCase().includes(q),
+        ) ||
+        r.secondaryExams.some(
+          (e) =>
+            e.program.toLowerCase().includes(q) ||
+            (e.specialization ?? "").toLowerCase().includes(q) ||
+            e.exam_name.toLowerCase().includes(q) ||
+            e.subject_code.toLowerCase().includes(q),
+        ),
     );
   });
 
@@ -420,16 +395,15 @@ const ExamsOverview: React.FC = () => {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        {["all", "scheduled", "completed"].map((status) => (
+      <div className="flex flex-wrap gap-2 mb-4">
+        {(["all", "scheduled", "completed"] as const).map((s) => (
           <Button
-            key={status}
-            variant={statusFilter === status ? "default" : "outline"}
+            key={s}
+            variant={statusFilter === s ? "default" : "outline"}
             size="sm"
-            onClick={() => setStatusFilter(status)}
+            onClick={() => setStatusFilter(s)}
           >
-            {status.charAt(0).toUpperCase() + status.slice(1)}
+            {s.charAt(0).toUpperCase() + s.slice(1)}
           </Button>
         ))}
       </div>
@@ -437,214 +411,100 @@ const ExamsOverview: React.FC = () => {
       <div className="mb-6">
         <input
           type="text"
-          placeholder="Search by room number, program, or specialization..."
+          placeholder="Search by room, program, specialization, subject…"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+          className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
         />
       </div>
 
-      {/* Main content */}
       <div className="space-y-6">
         {isLoading ? (
           <div className="text-center py-12 text-muted-foreground">
-            Loading exam schedules...
+            Loading exam schedules…
           </div>
-        ) : filteredDates.length === 0 ? (
+        ) : filteredGroups.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             No exam schedules found
           </div>
         ) : (
-          filteredDates.map((dateGroup) => (
-            <div
-              key={dateGroup.examDate}
-              className="bg-card border rounded-lg p-6"
-            >
-              {/* Date Header */}
-              <div className="flex items-center gap-3 mb-4 pb-4 border-b">
-                <Calendar className="h-5 w-5 text-primary" />
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">
-                    {dateGroup.examDate}
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    {dateGroup.dayOfWeek}
-                  </p>
-                </div>
-                <div className="ml-auto">
-                  <span
-                    className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                      deriveStatus(dateGroup.examDate) === "scheduled"
-                        ? "badge-primary"
-                        : "badge-success"
-                    }`}
-                  >
-                    {deriveStatus(dateGroup.examDate).charAt(0).toUpperCase() +
-                      deriveStatus(dateGroup.examDate).slice(1)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Rooms Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {dateGroup.rooms.length === 0 ? (
-                  <div className="col-span-full text-center py-8 text-muted-foreground">
-                    No rooms assigned for this date
+          filteredGroups.map((group) => {
+            const status = deriveStatus(group.examDate);
+            return (
+              <div
+                key={group.examDate}
+                className="bg-card border rounded-xl p-6"
+              >
+                <div className="flex items-center gap-3 mb-5 pb-4 border-b">
+                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <Calendar className="h-5 w-5 text-primary" />
                   </div>
-                ) : (
-                  dateGroup.rooms.map((room) => (
-                    <div
-                      key={`${dateGroup.examDate}-${room.roomId}`}
-                      className="border rounded-lg p-4 bg-background"
+                  <div>
+                    <h3 className="text-lg font-bold text-foreground">
+                      {group.examDate}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      {group.dayOfWeek} · {group.rooms.length} room
+                      {group.rooms.length !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                  <div className="ml-auto">
+                    <span
+                      className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
+                        status === "scheduled"
+                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                          : "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+                      }`}
                     >
-                      <div
-                        className="cursor-pointer hover:shadow-md transition-shadow"
-                        onClick={() =>
-                          handleRoomClick(
-                            room.roomId,
-                            room.roomNumber,
-                            room.roomCapacity,
-                            dateGroup.examDate,
-                            dateGroup.dayOfWeek,
-                            room,
-                          )
-                        }
-                      >
-                        {/* Room Header */}
-                        <div className="flex items-center gap-2 mb-3">
-                          <MapPin className="h-4 w-4 text-primary" />
-                          <div>
-                            <p className="font-semibold text-foreground">
-                              {room.roomNumber}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Capacity: {room.roomCapacity}
-                            </p>
-                          </div>
-                        </div>
+                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                    </span>
+                  </div>
+                </div>
 
-                        {/* Assigned Groups */}
-                        <div className="space-y-2">
-                          {room.primaryGroup && (
-                            <div className="border-l-2 border-blue-500 pl-2">
-                              <p className="text-sm font-medium text-foreground">
-                                {getSemesterDisplay(
-                                  room.primaryGroup.yearLevel,
-                                  room.primaryGroup.semester,
-                                )}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {room.primaryGroup.program}
-                                {room.primaryGroup.specialization && (
-                                  <span className="ml-1">
-                                    ({room.primaryGroup.specialization})
-                                  </span>
-                                )}
-                              </p>
-                            </div>
-                          )}
-                          {room.secondaryGroup && (
-                            <div className="border-l-2 border-green-500 pl-2">
-                              <p className="text-sm font-medium text-foreground">
-                                {getSemesterDisplay(
-                                  room.secondaryGroup.yearLevel,
-                                  room.secondaryGroup.semester,
-                                )}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {room.secondaryGroup.program}
-                                {room.secondaryGroup.specialization && (
-                                  <span className="ml-1">
-                                    ({room.secondaryGroup.specialization})
-                                  </span>
-                                )}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Total Students */}
-                        <div className="flex items-center gap-1.5 mt-3 pt-3 border-t">
-                          <Users className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm font-medium">
-                            {room.totalStudents} students
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Assign Invigilators Button */}
-                      <div className="mt-3 pt-3 border-t">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full"
-                          onClick={(e) => handleAssignTeachers(e, room, dateGroup.examDate)}
-                        >
-                          <Users className="h-4 w-4 mr-2" />
-                          {assignmentCounts[room.examRoomId] > 0
-                            ? `${assignmentCounts[room.examRoomId]} Invigilator${
-                                assignmentCounts[room.examRoomId] !== 1 ? "s" : ""
-                              } Assigned`
-                            : "Assign Invigilators"}
-                        </Button>
-                      </div>
-                    </div>
-                  ))
+                {group.rooms.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    No rooms assigned for this date
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {group.rooms.map((room) => (
+                      <RoomCard
+                        key={room.key}
+                        room={room}
+                        assignmentCount={assignmentCounts[room.key] ?? 0}
+                        onCardClick={handleCardClick}
+                        onAssignClick={handleAssignClick}
+                      />
+                    ))}
+                  </div>
                 )}
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
-      {/* Room Detail Modal */}
       {selectedRoom && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          {/* ... your existing modal content ... */}
-          <div className="bg-card border rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between p-6 border-b sticky top-0 bg-card">
-              <div className="flex items-center gap-3">
-                <MapPin className="h-5 w-5 text-primary" />
-                <div>
-                  <h2 className="text-xl font-semibold text-foreground">
-                    {selectedRoom.roomNumber}
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
-                    {selectedRoom.examDate} ({selectedRoom.dayOfWeek})
-                  </p>
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSelectedRoom(null)}
-              >
-                <X className="h-5 w-5" />
-              </Button>
-            </div>
-
-            {/* ... rest of your modal content remains unchanged ... */}
-          </div>
-        </div>
+        <RoomDetailModal
+          room={selectedRoom}
+          onClose={() => setSelectedRoom(null)}
+        />
       )}
 
-      {/* ─── Assign Teachers Modal ──────────────────────────────── */}
-      {showAssignModal && selectedRoomForAssignment && (
+      {showAssignModal && assignTarget && (
         <AssignTeachersModal
-          examRoomId={selectedRoomForAssignment.examRoomId}
-          roomNumber={selectedRoomForAssignment.roomNumber}
-          examDate={selectedRoomForAssignment.examDate}
-          examTime={selectedRoomForAssignment.examTime}
+          examRoomId={assignTarget.examRoomId}
+          roomNumber={assignTarget.roomNumber}
+          examDate={assignTarget.examDate}
+          examSession={assignTarget.examSession}
+          examTime={assignTarget.examTime}
+          roomCardData={assignTarget}
           onClose={() => {
             setShowAssignModal(false);
-            setSelectedRoomForAssignment(null);
+            setAssignTarget(null);
           }}
-          onSuccess={() => {
-            handleAssignmentSuccess();
-            // Optional: also close modal after success
-            // setShowAssignModal(false);
-            // setSelectedRoomForAssignment(null);
+          onSuccess={async () => {
+            await loadAssignmentCounts();
           }}
         />
       )}

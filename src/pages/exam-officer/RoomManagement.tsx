@@ -13,7 +13,9 @@ import {
   Loader2,
   Search,
   X,
+  Lock,
 } from "lucide-react";
+
 import { toast } from "sonner";
 import {
   getAllRooms,
@@ -188,12 +190,24 @@ const RoomManagement: React.FC = () => {
   };
 
   const handleEditExamRoom = (examRoom: ExamRoomWithDetails) => {
+    if (examRoom.stu_assigned) {
+      toast.warning(
+        "This room already has students assigned and cannot be edited.",
+      );
+      return;
+    }
     setExamRoomModalMode("edit");
     setSelectedExamRoom(examRoom);
     setShowExamRoomModal(true);
   };
 
   const handleDeleteExamRoom = (examRoom: ExamRoomWithDetails) => {
+    if (examRoom.stu_assigned) {
+      toast.warning(
+        "This room already has students assigned and cannot be deleted.",
+      );
+      return;
+    }
     if (examRoom.exam_room_id) {
       setDeleteTarget({
         type: "exam-room",
@@ -618,11 +632,28 @@ const ExamRoomsTable: React.FC<ExamRoomsTableProps> = ({
                 {examRoom.assigned_capacity} / {examRoom.room?.capacity || "?"}
               </td>
               <td className="px-4 py-3 text-right">
-                <div className="flex justify-end gap-2">
+                <div className="flex justify-end items-center gap-2">
+                  {examRoom.stu_assigned && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 border border-blue-200">
+                      <Lock className="w-3 h-3" />
+                      Assigned
+                    </span>
+                  )}
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => onEdit(examRoom)}
+                    disabled={examRoom.stu_assigned}
+                    className={
+                      examRoom.stu_assigned
+                        ? "opacity-40 cursor-not-allowed"
+                        : ""
+                    }
+                    title={
+                      examRoom.stu_assigned
+                        ? "Students already assigned — editing locked"
+                        : "Edit"
+                    }
                   >
                     <Edit className="w-4 h-4" />
                   </Button>
@@ -630,7 +661,17 @@ const ExamRoomsTable: React.FC<ExamRoomsTableProps> = ({
                     size="sm"
                     variant="outline"
                     onClick={() => onDelete(examRoom)}
-                    className="text-red-600 hover:bg-red-50"
+                    disabled={examRoom.stu_assigned}
+                    className={
+                      examRoom.stu_assigned
+                        ? "opacity-40 cursor-not-allowed"
+                        : "text-red-600 hover:bg-red-50"
+                    }
+                    title={
+                      examRoom.stu_assigned
+                        ? "Students already assigned — deletion locked"
+                        : "Delete"
+                    }
                   >
                     <Trash2 className="w-4 h-4" />
                   </Button>

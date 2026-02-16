@@ -20,8 +20,21 @@ import {
   ChevronDown,
   Armchair,
   History,
+  BookUser,
   LoaderCircle,
   LayoutGrid,
+  TriangleAlert,
+  UserSquare2,
+  PlusCircle,
+  Building2,
+  CalendarCheck,
+  DoorClosed,
+  Grid3x3,
+  UserCog,
+  ClipboardCheck,
+  AlertCircle,
+  Database,
+  ListOrdered,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -29,50 +42,95 @@ interface NavItem {
   icon: React.ElementType;
   label: string;
   path: string;
+  danger?: boolean;
+  color?: string; // Custom color for specific routes
 }
 
 const roleNavItems: Record<string, NavItem[]> = {
-  admin: [
-    { icon: LayoutDashboard, label: "Dashboard", path: "/admin" },
-    { icon: Users, label: "User Management", path: "/admin/users" },
-    { icon: Shield, label: "Role Assignment", path: "/admin/roles" },
-    { icon: DoorOpen, label: "Room Management", path: "/admin/rooms" },
-  ],
   exam_officer: [
-    { icon: LayoutDashboard, label: "Dashboard", path: "/exam-officer" },
     {
-      icon: GraduationCap,
+      icon: LayoutDashboard,
+      label: "Dashboard",
+      path: "/exam-officer",
+      color: "text-blue-500",
+    },
+    {
+      icon: BookUser,
+      label: "User Manual",
+      path: "/exam-officer/user-manual",
+      color: "text-purple-500",
+    },
+    {
+      icon: UserSquare2,
       label: "Student Records",
       path: "/exam-officer/students",
+      color: "text-violet-500",
     },
-    { icon: FileText, label: "Create Exam", path: "/exam-officer/create-exam" },
-    { icon: DoorOpen, label: "Room Capacity", path: "/exam-officer/rooms" },
-    { icon: School, label: "Exam Schedules", path: "/exam-officer/exams" },
     {
-      icon: Calendar,
+      icon: PlusCircle,
+      label: "Insert Data",
+      path: "/exam-officer/insert-data",
+      color: "text-green-500",
+    },
+    {
+      icon: Building2,
+      label: "Room Capacity",
+      path: "/exam-officer/rooms",
+      color: "text-orange-500",
+    },
+    {
+      icon: CalendarCheck,
+      label: "Exam Schedules",
+      path: "/exam-officer/exams",
+      color: "text-cyan-500",
+    },
+    {
+      icon: DoorClosed,
       label: "Room Assignment",
       path: "/exam-officer/room-assignment",
+      color: "text-pink-500",
     },
     {
       icon: Settings,
       label: "Manage Rooms",
       path: "/exam-officer/room-management",
+      color: "text-gray-500",
     },
-    { icon: LayoutGrid, label: "Seating Plans", path: "/exam-officer/seating" },
     {
-      icon: History,
+      icon: Grid3x3,
+      label: "Seating Plans",
+      path: "/exam-officer/seating",
+      color: "text-sky-500",
+    },
+    {
+      icon: ListOrdered,
+      label: "Room Ranges",
+      path: "/exam-officer/room-ranges",
+      color: "text-teal-500",
+    },
+    {
+      icon: AlertCircle,
       label: "Special Exams",
       path: "/exam-officer/special-exams",
-    },
-    {
-      icon: BookOpen,
-      label: "Teacher Assignments",
-      path: "/exam-officer/teacher-assignments",
+      color: "text-amber-500",
     },
     {
       icon: Users,
-      label: "Teacher ",
+      label: "Teacher Records",
       path: "/exam-officer/teacher-view",
+      color: "text-indigo-500",
+    },
+    {
+      icon: UserCog,
+      label: "Teacher Assignments",
+      path: "/exam-officer/teacher-assignments",
+      color: "text-emerald-500",
+    },
+    {
+      icon: TriangleAlert,
+      label: "Danger Zone",
+      path: "/exam-officer/danger-zone",
+      danger: true,
     },
   ],
   invigilator: [
@@ -171,20 +229,43 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
 
           {/* Navigation */}
           <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                end={item.path === `/${user.role}` || item.path === "/admin"}
-                className={({ isActive }) =>
-                  `nav-item ${isActive ? "active" : ""}`
-                }
-                onClick={() => setIsSidebarOpen(false)}
-              >
-                <item.icon className="h-5 w-5" />
-                <span>{item.label}</span>
-              </NavLink>
-            ))}
+            {navItems.map((item) =>
+              item.danger ? (
+                <React.Fragment key={item.path}>
+                  {/* Divider before Danger Zone */}
+                  <div className="my-2 border-t border-red-500/20" />
+                  <NavLink
+                    to={item.path}
+                    end
+                    className={({ isActive }) =>
+                      [
+                        "nav-item border-l-2 transition-colors",
+                        isActive
+                          ? "border-red-500 bg-red-500/10 text-red-400"
+                          : "border-transparent text-red-400/70 hover:border-red-500 hover:bg-red-500/10 hover:text-red-400",
+                      ].join(" ")
+                    }
+                    onClick={() => setIsSidebarOpen(false)}
+                  >
+                    <item.icon className="h-5 w-5 text-red-500" />
+                    <span>{item.label}</span>
+                  </NavLink>
+                </React.Fragment>
+              ) : (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  end={item.path === `/${user.role}` || item.path === "/admin"}
+                  className={({ isActive }) =>
+                    `nav-item ${isActive ? "active" : ""}`
+                  }
+                  onClick={() => setIsSidebarOpen(false)}
+                >
+                  <item.icon className={`h-5 w-5 ${item.color || ""}`} />
+                  <span>{item.label}</span>
+                </NavLink>
+              ),
+            )}
           </nav>
 
           {/* User section */}

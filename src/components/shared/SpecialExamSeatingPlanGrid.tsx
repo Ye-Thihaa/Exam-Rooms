@@ -457,9 +457,7 @@ const SpecialExamSeatingPlanGrid: React.FC<SpecialExamSeatingPlanGridProps> = ({
                               </span>
                             </>
                           ) : (
-                            <span className="text-xs text-gray-400">
-                              Click to assign
-                            </span>
+                            <span className="text-xs text-gray-400">-</span>
                           )}
                         </div>
                       );
