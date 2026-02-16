@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
+import React, { useState } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard,
   Users,
@@ -15,52 +15,148 @@ import {
   GraduationCap,
   Shield,
   FileText,
+  School,
   Settings,
   ChevronDown,
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
+  Armchair,
+  History,
+  BookUser,
+  LoaderCircle,
+  LayoutGrid,
+  TriangleAlert,
+  UserSquare2,
+  PlusCircle,
+  Building2,
+  CalendarCheck,
+  DoorClosed,
+  Grid3x3,
+  UserCog,
+  ClipboardCheck,
+  AlertCircle,
+  Database,
+  ListOrdered,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface NavItem {
   icon: React.ElementType;
   label: string;
   path: string;
+  danger?: boolean;
+  color?: string; // Custom color for specific routes
 }
 
 const roleNavItems: Record<string, NavItem[]> = {
-  admin: [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/admin' },
-    { icon: Users, label: 'User Management', path: '/admin/users' },
-    { icon: Shield, label: 'Role Assignment', path: '/admin/roles' },
-    { icon: DoorOpen, label: 'Room Management', path: '/admin/rooms' },
-    { icon: BookOpen, label: 'Exams Overview', path: '/admin/exams' },
-  ],
   exam_officer: [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/exam-officer' },
-    { icon: GraduationCap, label: 'Student Records', path: '/exam-officer/students' },
-    { icon: FileText, label: 'Create Exam', path: '/exam-officer/create-exam' },
-    { icon: DoorOpen, label: 'Room Capacity', path: '/exam-officer/rooms' },
-    { icon: ClipboardList, label: 'Generate Seating', path: '/exam-officer/seating' },
+    {
+      icon: LayoutDashboard,
+      label: "Dashboard",
+      path: "/exam-officer",
+      color: "text-blue-500",
+    },
+    {
+      icon: BookUser,
+      label: "User Manual",
+      path: "/exam-officer/user-manual",
+      color: "text-purple-500",
+    },
+    {
+      icon: UserSquare2,
+      label: "Student Records",
+      path: "/exam-officer/students",
+      color: "text-violet-500",
+    },
+    {
+      icon: PlusCircle,
+      label: "Insert Data",
+      path: "/exam-officer/insert-data",
+      color: "text-green-500",
+    },
+    {
+      icon: Building2,
+      label: "Room Capacity",
+      path: "/exam-officer/rooms",
+      color: "text-orange-500",
+    },
+    {
+      icon: CalendarCheck,
+      label: "Exam Schedules",
+      path: "/exam-officer/exams",
+      color: "text-cyan-500",
+    },
+    {
+      icon: DoorClosed,
+      label: "Room Assignment",
+      path: "/exam-officer/room-assignment",
+      color: "text-pink-500",
+    },
+    {
+      icon: Settings,
+      label: "Manage Rooms",
+      path: "/exam-officer/room-management",
+      color: "text-gray-500",
+    },
+    {
+      icon: Grid3x3,
+      label: "Seating Plans",
+      path: "/exam-officer/seating",
+      color: "text-sky-500",
+    },
+    {
+      icon: ListOrdered,
+      label: "Room Ranges",
+      path: "/exam-officer/room-ranges",
+      color: "text-teal-500",
+    },
+    {
+      icon: AlertCircle,
+      label: "Special Exams",
+      path: "/exam-officer/special-exams",
+      color: "text-amber-500",
+    },
+    {
+      icon: Users,
+      label: "Teacher Records",
+      path: "/exam-officer/teacher-view",
+      color: "text-indigo-500",
+    },
+    {
+      icon: UserCog,
+      label: "Teacher Assignments",
+      path: "/exam-officer/teacher-assignments",
+      color: "text-emerald-500",
+    },
+    {
+      icon: TriangleAlert,
+      label: "Danger Zone",
+      path: "/exam-officer/danger-zone",
+      danger: true,
+    },
   ],
   invigilator: [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/invigilator' },
-    { icon: BookOpen, label: 'Assigned Exams', path: '/invigilator/exams' },
-    { icon: DoorOpen, label: 'Assigned Rooms', path: '/invigilator/rooms' },
-    { icon: ClipboardList, label: 'Seating Plans', path: '/invigilator/seating' },
-    { icon: Calendar, label: 'Schedule', path: '/invigilator/schedule' },
+    { icon: LayoutDashboard, label: "Dashboard", path: "/invigilator" },
+    { icon: BookOpen, label: "Assigned Exams", path: "/invigilator/exams" },
+    { icon: DoorOpen, label: "Assigned Rooms", path: "/invigilator/rooms" },
+    {
+      icon: ClipboardList,
+      label: "Seating Plans",
+      path: "/invigilator/seating",
+    },
+    { icon: Calendar, label: "Schedule", path: "/invigilator/schedule" },
   ],
   student: [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/student' },
-    { icon: Calendar, label: 'Exam Timetable', path: '/student/timetable' },
-    { icon: DoorOpen, label: 'My Seat Info', path: '/student/seat' },
-    { icon: BookOpen, label: 'Exam Details', path: '/student/exams' },
+    { icon: LayoutDashboard, label: "Dashboard", path: "/student" },
+    { icon: Calendar, label: "Exam Timetable", path: "/student/timetable" },
+    { icon: DoorOpen, label: "My Seat Info", path: "/student/seat" },
+    { icon: BookOpen, label: "Exam Details", path: "/student/exams" },
   ],
 };
 
 const roleLabels: Record<string, string> = {
-  admin: 'Administrator',
-  exam_officer: 'Exam Officer',
-  invigilator: 'Invigilator',
-  student: 'Student',
+  admin: "Administrator",
+  exam_officer: "Exam Officer",
+  invigilator: "Invigilator",
+  student: "Student",
 };
 
 interface DashboardLayoutProps {
@@ -79,7 +175,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    navigate("/login");
   };
 
   return (
@@ -99,9 +195,9 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
           bg-sidebar text-sidebar-foreground
           transform transition-transform duration-200 ease-in-out
           lg:transform-none
-          ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+          ${isSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
         `}
-        style={{ background: 'var(--gradient-sidebar)' }}
+        style={{ background: "var(--gradient-sidebar)" }}
       >
         <div className="flex flex-col h-full">
           {/* Logo/Brand */}
@@ -111,8 +207,12 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                 <GraduationCap className="h-6 w-6 text-sidebar-primary-foreground" />
               </div>
               <div>
-                <h1 className="font-bold text-lg text-sidebar-foreground">ExamRoom</h1>
-                <p className="text-xs text-sidebar-foreground/70">University System</p>
+                <h1 className="font-bold text-lg text-sidebar-foreground">
+                  ExamRoom
+                </h1>
+                <p className="text-xs text-sidebar-foreground/70">
+                  University System
+                </p>
               </div>
             </div>
           </div>
@@ -129,20 +229,43 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
 
           {/* Navigation */}
           <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                end={item.path === `/${user.role}` || item.path === '/admin'}
-                className={({ isActive }) =>
-                  `nav-item ${isActive ? 'active' : ''}`
-                }
-                onClick={() => setIsSidebarOpen(false)}
-              >
-                <item.icon className="h-5 w-5" />
-                <span>{item.label}</span>
-              </NavLink>
-            ))}
+            {navItems.map((item) =>
+              item.danger ? (
+                <React.Fragment key={item.path}>
+                  {/* Divider before Danger Zone */}
+                  <div className="my-2 border-t border-red-500/20" />
+                  <NavLink
+                    to={item.path}
+                    end
+                    className={({ isActive }) =>
+                      [
+                        "nav-item border-l-2 transition-colors",
+                        isActive
+                          ? "border-red-500 bg-red-500/10 text-red-400"
+                          : "border-transparent text-red-400/70 hover:border-red-500 hover:bg-red-500/10 hover:text-red-400",
+                      ].join(" ")
+                    }
+                    onClick={() => setIsSidebarOpen(false)}
+                  >
+                    <item.icon className="h-5 w-5 text-red-500" />
+                    <span>{item.label}</span>
+                  </NavLink>
+                </React.Fragment>
+              ) : (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  end={item.path === `/${user.role}` || item.path === "/admin"}
+                  className={({ isActive }) =>
+                    `nav-item ${isActive ? "active" : ""}`
+                  }
+                  onClick={() => setIsSidebarOpen(false)}
+                >
+                  <item.icon className={`h-5 w-5 ${item.color || ""}`} />
+                  <span>{item.label}</span>
+                </NavLink>
+              ),
+            )}
           </nav>
 
           {/* User section */}
@@ -203,7 +326,9 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
               <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                 <User className="h-4 w-4 text-primary" />
               </div>
-              <span className="hidden sm:block text-sm font-medium">{user.name}</span>
+              <span className="hidden sm:block text-sm font-medium">
+                {user.name}
+              </span>
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
             </button>
 
@@ -216,7 +341,9 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                 <div className="absolute right-0 mt-2 w-56 bg-card rounded-lg shadow-lg border border-border z-50 py-2">
                   <div className="px-4 py-2 border-b border-border">
                     <p className="text-sm font-medium">{user.name}</p>
-                    <p className="text-xs text-muted-foreground">{user.email}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {user.email}
+                    </p>
                   </div>
                   <button
                     className="w-full px-4 py-2 text-left text-sm hover:bg-muted flex items-center gap-2"
@@ -232,9 +359,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 p-4 lg:p-6 overflow-auto">
-          {children}
-        </main>
+        <main className="flex-1 p-4 lg:p-6 overflow-auto">{children}</main>
       </div>
     </div>
   );

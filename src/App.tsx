@@ -3,25 +3,26 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider } from "@/contexts/AuthContext";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import ProtectedRoute from "@/components/shared/ProtectedRoute";
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
+
 // Pages
 import LoginPage from "./pages/LoginPage";
-
-// Admin Pages
-import AdminDashboard from "./pages/admin/AdminDashboard";
-import UserManagement from "./pages/admin/UserManagement";
-import RoleAssignment from "./pages/admin/RoleAssignment";
-import RoomManagement from "./pages/admin/RoomManagement";
-import ExamsOverview from "./pages/admin/ExamsOverview";
 
 // Exam Officer Pages
 import ExamOfficerDashboard from "./pages/exam-officer/ExamOfficerDashboard";
 import StudentRecords from "./pages/exam-officer/StudentRecords";
+import ExamsOverview from "./pages/exam-officer/ExamsOverview";
 import CreateExam from "./pages/exam-officer/CreateExam";
 import RoomCapacity from "./pages/exam-officer/RoomCapacity";
+import RoomAssignment from "./pages/exam-officer/RoomAssignment";
 import SeatingGenerator from "./pages/exam-officer/SeatingGenerator";
-
+import ExamSchedule from "./pages/exam-officer/Examschedule";
+import RoomManagement from "./pages/exam-officer/RoomManagement";
+import TeacherView from "./pages/exam-officer/TeacherView";
+import DangerZone from "./pages/exam-officer/DangerZone";
 // Invigilator Pages
 import InvigilatorDashboard from "./pages/invigilator/InvigilatorDashboard";
 import AssignedExams from "./pages/invigilator/AssignedExams";
@@ -36,8 +37,34 @@ import StudentSeat from "./pages/student/StudentSeat";
 import StudentExams from "./pages/student/StudentExams";
 
 import NotFound from "./pages/NotFound";
+import SpecialExamSeatingAssignment from "./pages/exam-officer/SpecialExamSeatingAssignment";
+import UserManual from "./pages/exam-officer/UserManual";
+import RoomRanges from "./components/RoomRanges";
+import RoomRangesPage from "./pages/exam-officer/RoomRangesPage";
+import InsertDataPage from "./pages/exam-officer/InsertDataPage";
 
 const queryClient = new QueryClient();
+
+// Root redirect component - redirects based on auth state
+const RootRedirect = () => {
+  const { user, isAuthenticated } = useAuth();
+
+  if (!isAuthenticated || !user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Redirect based on role
+  switch (user.role) {
+    case "exam_officer":
+      return <Navigate to="/exam-officer" replace />;
+    case "invigilator":
+      return <Navigate to="/invigilator" replace />;
+    case "student":
+      return <Navigate to="/student" replace />;
+    default:
+      return <Navigate to="/login" replace />;
+  }
+};
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -45,52 +72,13 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Navigate to="/login" replace />} />
-            <Route path="/login" element={<LoginPage />} />
-            {/* Admin Routes */}
-            <Route
-              path="/admin"
-              element={
-                <ProtectedRoute allowedRoles={["admin"]}>
-                  <AdminDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/users"
-              element={
-                <ProtectedRoute allowedRoles={["admin"]}>
-                  <UserManagement />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/roles"
-              element={
-                <ProtectedRoute allowedRoles={["admin"]}>
-                  <RoleAssignment />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/rooms"
-              element={
-                <ProtectedRoute allowedRoles={["admin"]}>
-                  <RoomManagement />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/exams"
-              element={
-                <ProtectedRoute allowedRoles={["admin"]}>
-                  <ExamsOverview />
-                </ProtectedRoute>
-              }
-            />
 
+        <BrowserRouter>
+          <Analytics />
+          <SpeedInsights />
+          <Routes>
+            <Route path="/" element={<RootRedirect />} />
+            <Route path="/login" element={<LoginPage />} />
             {/* Exam Officer Routes */}
             <Route
               path="/exam-officer"
@@ -109,10 +97,58 @@ const App = () => (
               }
             />
             <Route
-              path="/exam-officer/create-exam"
+              path="/exam-officer/room-ranges"
               element={
                 <ProtectedRoute allowedRoles={["exam_officer"]}>
-                  <CreateExam />
+                  <RoomRangesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/exam-officer/insert-data"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <InsertDataPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/exam-officer/room-management"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <RoomManagement />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/exam-officer/danger-zone"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <DangerZone />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/exam-officer/teacher-assignments"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <ExamsOverview />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/exam-officer/teacher-view"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <TeacherView />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/exam-officer/exams"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <ExamSchedule />
                 </ProtectedRoute>
               }
             />
@@ -125,6 +161,14 @@ const App = () => (
               }
             />
             <Route
+              path="/exam-officer/room-assignment"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <RoomAssignment />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/exam-officer/seating"
               element={
                 <ProtectedRoute allowedRoles={["exam_officer"]}>
@@ -132,7 +176,22 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
-
+            <Route
+              path="/exam-officer/user-manual"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <UserManual />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/exam-officer/special-exams"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <SpecialExamSeatingAssignment />
+                </ProtectedRoute>
+              }
+            />
             {/* Invigilator Routes */}
             <Route
               path="/invigilator"
