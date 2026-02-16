@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,7 @@ const roleInfo = [
     role: "exam_officer",
     label: "Exam Officer",
     email: "examofficer@university.edu",
-    password: "officer123",
+    password: "u!T3x@m0ff!c3R",
     icon: BookOpen,
     description: "Manage exams & seating",
   },
@@ -48,8 +48,30 @@ const LoginPage: React.FC = () => {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
-  const { login, isLoading } = useAuth();
+  const { login, isLoading, user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+
+  // Check if in production mode
+  const isProduction = import.meta.env.PROD;
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      switch (user.role) {
+        case "exam_officer":
+          navigate("/exam-officer", { replace: true });
+          break;
+        case "invigilator":
+          navigate("/invigilator", { replace: true });
+          break;
+        case "student":
+          navigate("/student", { replace: true });
+          break;
+        default:
+          navigate("/", { replace: true });
+      }
+    }
+  }, [isAuthenticated, user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -213,31 +235,33 @@ const LoginPage: React.FC = () => {
             </Button>
           </form>
 
-          {/* Quick login cards */}
-          <div className="space-y-3">
-            <p className="text-center text-sm text-muted-foreground">
-              Demo accounts (click to auto-fill)
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              {roleInfo.map((role) => (
-                <button
-                  key={role.role}
-                  onClick={() => handleQuickLogin(role.email, role.password)}
-                  className="p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-accent/50 transition-all text-left group"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <role.icon className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium text-foreground">
-                      {role.label}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {role.description}
-                  </p>
-                </button>
-              ))}
+          {/* Quick login cards - Only show in development */}
+          {!isProduction && (
+            <div className="space-y-3">
+              <p className="text-center text-sm text-muted-foreground">
+                Demo accounts (click to auto-fill)
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {roleInfo.map((role) => (
+                  <button
+                    key={role.role}
+                    onClick={() => handleQuickLogin(role.email, role.password)}
+                    className="p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-accent/50 transition-all text-left group"
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <role.icon className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-medium text-foreground">
+                        {role.label}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {role.description}
+                    </p>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

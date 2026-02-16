@@ -19,16 +19,16 @@ import {
   enrichTeacherWithCapability,
   getWorkloadLevel,
   SUPERVISOR_RANKS,
-  ASSISTANT_RANKS
-} from './teacherAssignmentTypes';
+  ASSISTANT_RANKS,
+} from "./teacherAssignmentTypes";
 
 export const teacherAssignmentQueries = {
   // Get all assignments
   async getAll(): Promise<TeacherAssignment[]> {
     const { data, error } = await supabase
-      .from('teacher_assignment')
-      .select('*')
-      .order('assigned_at', { ascending: false });
+      .from("teacher_assignment")
+      .select("*")
+      .order("assigned_at", { ascending: false });
 
     if (error) throw error;
     return data || [];
@@ -37,20 +37,31 @@ export const teacherAssignmentQueries = {
   // Get assignments for a specific exam room
   async getByExamRoom(examRoomId: number): Promise<TeacherAssignment[]> {
     const { data, error } = await supabase
-      .from('teacher_assignment')
-      .select('*')
-      .eq('exam_room_id', examRoomId);
+      .from("teacher_assignment")
+      .select("*")
+      .eq("exam_room_id", examRoomId);
 
     if (error) throw error;
     return data || [];
   },
 
-  // Get assignment status for an exam room
-  async getExamRoomStatus(examRoomId: number): Promise<ExamRoomAssignmentStatus> {
-    const assignments = await this.getByExamRoom(examRoomId);
-    
-    const supervisor = assignments.find(a => a.role === 'Supervisor');
-    const assistant = assignments.find(a => a.role === 'Assistant');
+  // Get assignment status for an exam room - FIXED: Added examDate parameter
+  async getExamRoomStatus(
+    examRoomId: number,
+    examDate: string,
+  ): Promise<ExamRoomAssignmentStatus> {
+    // Filter assignments by both exam_room_id and exam_date
+    const { data, error } = await supabase
+      .from("teacher_assignment")
+      .select("*")
+      .eq("exam_room_id", examRoomId)
+      .eq("exam_date", examDate);
+
+    if (error) throw error;
+
+    const assignments = data || [];
+    const supervisor = assignments.find((a) => a.role === "Supervisor");
+    const assistant = assignments.find((a) => a.role === "Assistant");
 
     return {
       exam_room_id: examRoomId,
@@ -58,7 +69,7 @@ export const teacherAssignmentQueries = {
       hasAssistant: !!assistant,
       supervisorId: supervisor?.teacher_id || null,
       assistantId: assistant?.teacher_id || null,
-      isFullyStaffed: !!supervisor && !!assistant
+      isFullyStaffed: !!supervisor && !!assistant,
     };
   },
 
@@ -66,13 +77,14 @@ export const teacherAssignmentQueries = {
   async checkTeacherAvailability(
     teacherId: number,
     examDate: string,
-    session: ExamSession
+    session: ExamSession,
   ): Promise<TeacherAvailability> {
     // Get all assignments for this teacher on the same date and session
     // exam_date and session are already in teacher_assignment table
     const { data: assignments, error } = await supabase
-      .from('teacher_assignment')
-      .select(`
+      .from("teacher_assignment")
+      .select(
+        `
         assignment_id,
         teacher_id,
         exam_room_id,
@@ -84,49 +96,53 @@ export const teacherAssignmentQueries = {
         exam_room!inner (
           exam_room_id,
           room_id,
-          room!inner (
+          room:room_id (
             room_number
           )
         )
-      `)
-      .eq('teacher_id', teacherId)
-      .eq('exam_date', examDate)
-      .eq('session', session);
+      `,
+      )
+      .eq("teacher_id", teacherId)
+      .eq("exam_date", examDate)
+      .eq("session", session);
 
     if (error) throw error;
 
-    const conflicts = assignments || [];
+    // FIXED: Use type assertion to access nested room property
+    const conflicts = (assignments || []) as any[];
     const is_available = conflicts.length === 0;
     const conflict_reason = is_available
       ? null
-      : `Already assigned to room ${conflicts[0]?.exam_room?.room?.room_number || 'Unknown'} on ${examDate} during ${session} session`;
+      : `Already assigned to room ${conflicts[0]?.exam_room?.room?.room_number || "Unknown"} on ${examDate} during ${session} session`;
 
     return {
       teacher_id: teacherId,
       is_available,
       conflict_reason,
       current_assignments: conflicts.map((c: any) => ({
-        exam_date: c.exam_date || '',
-        session: c.session || 'Unknown',
-        room_number: c.exam_room?.room?.room_number || 'Unknown',
-        role: c.role
-      }))
+        exam_date: c.exam_date || "",
+        session: c.session || "Unknown",
+        room_number: c.exam_room?.room?.room_number || "Unknown",
+        role: c.role,
+      })),
     };
   },
 
   // Get eligible teachers for a specific role
-  async getEligibleTeachers(role: TeacherRole): Promise<TeacherWithCapability[]> {
-    const ranks = role === 'Supervisor' ? SUPERVISOR_RANKS : ASSISTANT_RANKS;
-    
+  async getEligibleTeachers(
+    role: TeacherRole,
+  ): Promise<TeacherWithCapability[]> {
+    const ranks = role === "Supervisor" ? SUPERVISOR_RANKS : ASSISTANT_RANKS;
+
     const { data, error } = await supabase
-      .from('teacher')
-      .select('*')
-      .in('rank', ranks)
-      .order('total_periods_assigned', { ascending: true }) // Prioritize teachers with lower workload
-      .order('name');
+      .from("teacher")
+      .select("*")
+      .in("rank", ranks)
+      .order("total_periods_assigned", { ascending: true }) // Prioritize teachers with lower workload
+      .order("name");
 
     if (error) throw error;
-    
+
     return (data || []).map(enrichTeacherWithCapability);
   },
 
@@ -135,32 +151,41 @@ export const teacherAssignmentQueries = {
     examRoomId: number,
     role: TeacherRole,
     examDate: string,
-    session: ExamSession
+    session: ExamSession,
   ): Promise<TeacherWithAvailability[]> {
     // Get all eligible teachers for this role
     const eligibleTeachers = await this.getEligibleTeachers(role);
-    
-    // Get current assignments for this exam room
-    const currentAssignments = await this.getByExamRoom(examRoomId);
-    const assignedTeacherIds = currentAssignments.map(a => a.teacher_id);
-    
+
+    // Get current assignments for this exam room on this specific date
+    const { data: currentAssignments, error } = await supabase
+      .from("teacher_assignment")
+      .select("*")
+      .eq("exam_room_id", examRoomId)
+      .eq("exam_date", examDate);
+
+    if (error) throw error;
+
+    const assignedTeacherIds = (currentAssignments || []).map(
+      (a) => a.teacher_id,
+    );
+
     // Check availability for each teacher
     const teachersWithAvailability = await Promise.all(
       eligibleTeachers
-        .filter(t => !assignedTeacherIds.includes(t.teacher_id))
+        .filter((t) => !assignedTeacherIds.includes(t.teacher_id))
         .map(async (teacher) => {
           const availability = await this.checkTeacherAvailability(
             teacher.teacher_id,
             examDate,
-            session
+            session,
           );
-          
+
           return {
             ...teacher,
             availability,
-            workload_level: getWorkloadLevel(teacher.total_periods_assigned)
+            workload_level: getWorkloadLevel(teacher.total_periods_assigned),
           };
-        })
+        }),
     );
 
     // Sort: available first, then by workload (light to heavy)
@@ -169,7 +194,7 @@ export const teacherAssignmentQueries = {
       if (a.availability.is_available !== b.availability.is_available) {
         return a.availability.is_available ? -1 : 1;
       }
-      
+
       // Then by workload
       const workloadOrder = { Light: 1, Medium: 2, High: 3 };
       return workloadOrder[a.workload_level] - workloadOrder[b.workload_level];
@@ -179,14 +204,14 @@ export const teacherAssignmentQueries = {
   // Legacy method for backward compatibility (no session checking)
   async getAvailableTeachers(
     examRoomId: number,
-    role: TeacherRole
+    role: TeacherRole,
   ): Promise<TeacherWithCapability[]> {
     const eligibleTeachers = await this.getEligibleTeachers(role);
     const currentAssignments = await this.getByExamRoom(examRoomId);
-    const assignedTeacherIds = currentAssignments.map(a => a.teacher_id);
-    
+    const assignedTeacherIds = currentAssignments.map((a) => a.teacher_id);
+
     return eligibleTeachers.filter(
-      t => !assignedTeacherIds.includes(t.teacher_id)
+      (t) => !assignedTeacherIds.includes(t.teacher_id),
     );
   },
 
@@ -196,40 +221,42 @@ export const teacherAssignmentQueries = {
     teacherId: number,
     role: TeacherRole,
     examDate?: string,
-    session?: ExamSession
+    session?: ExamSession,
   ): Promise<{ valid: true } | { valid: false; error: string }> {
     // Get teacher details
     const { data: teacher, error: teacherError } = await supabase
-      .from('teacher')
-      .select('*')
-      .eq('teacher_id', teacherId)
+      .from("teacher")
+      .select("*")
+      .eq("teacher_id", teacherId)
       .single();
 
     if (teacherError || !teacher) {
-      return { valid: false, error: 'Teacher not found' };
+      return { valid: false, error: "Teacher not found" };
     }
 
     // Check if teacher rank is eligible for the role
     if (!canTeacherHaveRole(teacher.rank, role)) {
       return {
         valid: false,
-        error: new InvalidRoleError(teacher.rank, role).message
+        error: new InvalidRoleError(teacher.rank, role).message,
       };
     }
 
-    // Check if role is already filled
-    const status = await this.getExamRoomStatus(examRoomId);
-    if (role === 'Supervisor' && status.hasSupervisor) {
-      return {
-        valid: false,
-        error: new RoleAlreadyFilledError('Supervisor', examRoomId).message
-      };
-    }
-    if (role === 'Assistant' && status.hasAssistant) {
-      return {
-        valid: false,
-        error: new RoleAlreadyFilledError('Assistant', examRoomId).message
-      };
+    // Check if role is already filled - FIXED: Pass examDate
+    if (examDate) {
+      const status = await this.getExamRoomStatus(examRoomId, examDate);
+      if (role === "Supervisor" && status.hasSupervisor) {
+        return {
+          valid: false,
+          error: new RoleAlreadyFilledError("Supervisor", examRoomId).message,
+        };
+      }
+      if (role === "Assistant" && status.hasAssistant) {
+        return {
+          valid: false,
+          error: new RoleAlreadyFilledError("Assistant", examRoomId).message,
+        };
+      }
     }
 
     // Check for time conflicts if date and session provided
@@ -237,7 +264,7 @@ export const teacherAssignmentQueries = {
       const availability = await this.checkTeacherAvailability(
         teacherId,
         examDate,
-        session
+        session,
       );
 
       if (!availability.is_available) {
@@ -247,8 +274,8 @@ export const teacherAssignmentQueries = {
             teacher.name,
             examDate,
             session,
-            availability.current_assignments?.[0]?.room_number
-          ).message
+            availability.current_assignments?.[0]?.room_number,
+          ).message,
         };
       }
     }
@@ -264,7 +291,7 @@ export const teacherAssignmentQueries = {
     examDate?: string,
     session?: ExamSession,
     shiftStart?: string,
-    shiftEnd?: string
+    shiftEnd?: string,
   ): Promise<TeacherAssignment> {
     // Validate first
     const validation = await this.validateAssignment(
@@ -272,29 +299,30 @@ export const teacherAssignmentQueries = {
       teacherId,
       role,
       examDate,
-      session
+      session,
     );
-    
+
     if (!validation.valid) {
       throw new Error(validation.error);
     }
 
     const { data, error } = await supabase
-      .from('teacher_assignment')
+      .from("teacher_assignment")
       .insert({
         exam_room_id: examRoomId,
         teacher_id: teacherId,
         role: role,
+        exam_date: examDate || null,
         session: session || null,
         shift_start: shiftStart || null,
         shift_end: shiftEnd || null,
-        assigned_at: new Date().toISOString()
+        assigned_at: new Date().toISOString(),
       })
       .select()
       .single();
 
     if (error) throw error;
-    
+
     // Note: total_periods_assigned will be automatically updated by the database trigger
     return data;
   },
@@ -303,15 +331,15 @@ export const teacherAssignmentQueries = {
   async update(
     assignmentId: number,
     shiftStart?: string,
-    shiftEnd?: string
+    shiftEnd?: string,
   ): Promise<TeacherAssignment> {
     const { data, error } = await supabase
-      .from('teacher_assignment')
+      .from("teacher_assignment")
       .update({
         shift_start: shiftStart || null,
-        shift_end: shiftEnd || null
+        shift_end: shiftEnd || null,
       })
-      .eq('assignment_id', assignmentId)
+      .eq("assignment_id", assignmentId)
       .select()
       .single();
 
@@ -322,21 +350,26 @@ export const teacherAssignmentQueries = {
   // Delete an assignment
   async delete(assignmentId: number): Promise<void> {
     const { error } = await supabase
-      .from('teacher_assignment')
+      .from("teacher_assignment")
       .delete()
-      .eq('assignment_id', assignmentId);
+      .eq("assignment_id", assignmentId);
 
     if (error) throw error;
     // Note: total_periods_assigned will be automatically decremented by the database trigger
   },
 
-  // Delete by exam room and role (useful for replacing)
-  async deleteByRoomAndRole(examRoomId: number, role: TeacherRole): Promise<void> {
+  // Delete by exam room and role - FIXED: Added examDate parameter
+  async deleteByRoomAndRole(
+    examRoomId: number,
+    role: TeacherRole,
+    examDate: string,
+  ): Promise<void> {
     const { error } = await supabase
-      .from('teacher_assignment')
+      .from("teacher_assignment")
       .delete()
-      .eq('exam_room_id', examRoomId)
-      .eq('role', role);
+      .eq("exam_room_id", examRoomId)
+      .eq("role", role)
+      .eq("exam_date", examDate);
 
     if (error) throw error;
   },
@@ -344,8 +377,9 @@ export const teacherAssignmentQueries = {
   // Get assignments with teacher and exam details
   async getWithDetails(examRoomId: number) {
     const { data, error } = await supabase
-      .from('teacher_assignment')
-      .select(`
+      .from("teacher_assignment")
+      .select(
+        `
         *,
         teacher!inner (
           teacher_id,
@@ -356,59 +390,67 @@ export const teacherAssignmentQueries = {
         ),
         exam_room!inner (
           exam_room_id,
-          exam_date,
           room!inner (
             room_number,
             capacity
           )
         )
-      `)
-      .eq('exam_room_id', examRoomId);
+      `,
+      )
+      .eq("exam_room_id", examRoomId);
 
     if (error) throw error;
     return data || [];
   },
 
   // Get all exam rooms with their assignment counts and status
-  async getExamRoomAssignmentCounts(): Promise<Record<number, { 
-    total: number; 
-    supervisor: boolean; 
-    assistant: boolean;
-    isFullyStaffed: boolean;
-  }>> {
+  async getExamRoomAssignmentCounts(): Promise<
+    Record<
+      number,
+      {
+        total: number;
+        supervisor: boolean;
+        assistant: boolean;
+        isFullyStaffed: boolean;
+      }
+    >
+  > {
     const { data, error } = await supabase
-      .from('teacher_assignment')
-      .select('exam_room_id, role');
+      .from("teacher_assignment")
+      .select("exam_room_id, role");
 
     if (error) throw error;
 
-    const counts: Record<number, { 
-      total: number; 
-      supervisor: boolean; 
-      assistant: boolean;
-      isFullyStaffed: boolean;
-    }> = {};
-    
-    (data || []).forEach(assignment => {
+    const counts: Record<
+      number,
+      {
+        total: number;
+        supervisor: boolean;
+        assistant: boolean;
+        isFullyStaffed: boolean;
+      }
+    > = {};
+
+    (data || []).forEach((assignment) => {
       if (!counts[assignment.exam_room_id]) {
         counts[assignment.exam_room_id] = {
           total: 0,
           supervisor: false,
           assistant: false,
-          isFullyStaffed: false
+          isFullyStaffed: false,
         };
       }
       counts[assignment.exam_room_id].total++;
-      if (assignment.role === 'Supervisor') {
+      if (assignment.role === "Supervisor") {
         counts[assignment.exam_room_id].supervisor = true;
       }
-      if (assignment.role === 'Assistant') {
+      if (assignment.role === "Assistant") {
         counts[assignment.exam_room_id].assistant = true;
       }
     });
 
     // Mark as fully staffed if has both roles
-    Object.values(counts).forEach(count => {
+    Object.values(counts).forEach((count) => {
       count.isFullyStaffed = count.supervisor && count.assistant;
     });
 
@@ -418,28 +460,28 @@ export const teacherAssignmentQueries = {
   // NEW: Get teacher schedule for a specific date
   async getTeacherSchedule(teacherId: number, examDate?: string) {
     let query = supabase
-      .from('teacher_assignment')
-      .select(`
+      .from("teacher_assignment")
+      .select(
+        `
         *,
         exam_room!inner (
           exam_room_id,
-          exam_date,
           room!inner (
             room_number,
             capacity
           )
         )
-      `)
-      .eq('teacher_id', teacherId);
+      `,
+      )
+      .eq("teacher_id", teacherId);
 
     if (examDate) {
-      // This will need a join through exam_room to exam table
-      // For now, return all and filter in application
+      query = query.eq("exam_date", examDate);
     }
 
     const { data, error } = await query;
     if (error) throw error;
 
     return data || [];
-  }
+  },
 };

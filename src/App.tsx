@@ -3,7 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider } from "@/contexts/AuthContext";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import ProtectedRoute from "@/components/shared/ProtectedRoute";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
@@ -11,15 +11,10 @@ import { SpeedInsights } from "@vercel/speed-insights/react";
 // Pages
 import LoginPage from "./pages/LoginPage";
 
-// Admin Pages
-import AdminDashboard from "./pages/admin/AdminDashboard";
-import UserManagement from "./pages/admin/UserManagement";
-import RoleAssignment from "./pages/admin/RoleAssignment";
-import ExamsOverview from "./pages/exam-officer/ExamsOverview";
-
 // Exam Officer Pages
 import ExamOfficerDashboard from "./pages/exam-officer/ExamOfficerDashboard";
 import StudentRecords from "./pages/exam-officer/StudentRecords";
+import ExamsOverview from "./pages/exam-officer/ExamsOverview";
 import CreateExam from "./pages/exam-officer/CreateExam";
 import RoomCapacity from "./pages/exam-officer/RoomCapacity";
 import RoomAssignment from "./pages/exam-officer/RoomAssignment";
@@ -27,6 +22,7 @@ import SeatingGenerator from "./pages/exam-officer/SeatingGenerator";
 import ExamSchedule from "./pages/exam-officer/Examschedule";
 import RoomManagement from "./pages/exam-officer/RoomManagement";
 import TeacherView from "./pages/exam-officer/TeacherView";
+import DangerZone from "./pages/exam-officer/DangerZone";
 // Invigilator Pages
 import InvigilatorDashboard from "./pages/invigilator/InvigilatorDashboard";
 import AssignedExams from "./pages/invigilator/AssignedExams";
@@ -42,8 +38,30 @@ import StudentExams from "./pages/student/StudentExams";
 
 import NotFound from "./pages/NotFound";
 import SpecialExamSeatingAssignment from "./pages/exam-officer/SpecialExamSeatingAssignment";
+import UserManual from "./pages/exam-officer/UserManual";
 
 const queryClient = new QueryClient();
+
+// Root redirect component - redirects based on auth state
+const RootRedirect = () => {
+  const { user, isAuthenticated } = useAuth();
+
+  if (!isAuthenticated || !user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Redirect based on role
+  switch (user.role) {
+    case "exam_officer":
+      return <Navigate to="/exam-officer" replace />;
+    case "invigilator":
+      return <Navigate to="/invigilator" replace />;
+    case "student":
+      return <Navigate to="/student" replace />;
+    default:
+      return <Navigate to="/login" replace />;
+  }
+};
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -56,49 +74,8 @@ const App = () => (
           <Analytics />
           <SpeedInsights />
           <Routes>
-            <Route path="/" element={<Navigate to="/login" replace />} />
+            <Route path="/" element={<RootRedirect />} />
             <Route path="/login" element={<LoginPage />} />
-            {/* Admin Routes */}
-            <Route
-              path="/admin"
-              element={
-                <ProtectedRoute allowedRoles={["admin"]}>
-                  <AdminDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/users"
-              element={
-                <ProtectedRoute allowedRoles={["admin"]}>
-                  <UserManagement />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/roles"
-              element={
-                <ProtectedRoute allowedRoles={["admin"]}>
-                  <RoleAssignment />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/rooms"
-              element={
-                <ProtectedRoute allowedRoles={["admin"]}>
-                  <RoomManagement />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/exams"
-              element={
-                <ProtectedRoute allowedRoles={["admin"]}>
-                  <ExamsOverview />
-                </ProtectedRoute>
-              }
-            />
             {/* Exam Officer Routes */}
             <Route
               path="/exam-officer"
@@ -129,6 +106,14 @@ const App = () => (
               element={
                 <ProtectedRoute allowedRoles={["exam_officer"]}>
                   <RoomManagement />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/exam-officer/danger-zone"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <DangerZone />
                 </ProtectedRoute>
               }
             />
@@ -177,6 +162,14 @@ const App = () => (
               element={
                 <ProtectedRoute allowedRoles={["exam_officer"]}>
                   <SeatingGenerator />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/exam-officer/user-manual"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <UserManual />
                 </ProtectedRoute>
               }
             />
