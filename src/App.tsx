@@ -41,6 +41,7 @@ import SpecialExamSeatingAssignment from "./pages/exam-officer/SpecialExamSeatin
 import UserManual from "./pages/exam-officer/UserManual";
 import RoomRanges from "./components/RoomRanges";
 import RoomRangesPage from "./pages/exam-officer/RoomRangesPage";
+import InsertDataPage from "./pages/exam-officer/InsertDataPage";
 
 const queryClient = new QueryClient();
 
@@ -104,10 +105,10 @@ const App = () => (
               }
             />
             <Route
-              path="/exam-officer/create-exam"
+              path="/exam-officer/insert-data"
               element={
                 <ProtectedRoute allowedRoles={["exam_officer"]}>
-                  <CreateExam />
+                  <InsertDataPage />
                 </ProtectedRoute>
               }
             />

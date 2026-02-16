@@ -68,8 +68,8 @@ const roleNavItems: Record<string, NavItem[]> = {
     },
     {
       icon: PlusCircle,
-      label: "Create Exam",
-      path: "/exam-officer/create-exam",
+      label: "Insert Data",
+      path: "/exam-officer/insert-data",
       color: "text-green-500",
     },
     {
