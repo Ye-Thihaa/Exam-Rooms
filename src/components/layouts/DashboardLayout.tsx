@@ -34,6 +34,7 @@ import {
   ClipboardCheck,
   AlertCircle,
   Database,
+  ListOrdered,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -100,6 +101,12 @@ const roleNavItems: Record<string, NavItem[]> = {
       label: "Seating Plans",
       path: "/exam-officer/seating",
       color: "text-sky-500",
+    },
+    {
+      icon: ListOrdered,
+      label: "Room Ranges",
+      path: "/exam-officer/room-ranges",
+      color: "text-teal-500",
     },
     {
       icon: AlertCircle,

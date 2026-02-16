@@ -1,70 +1,41 @@
-// ============================================
-// UPDATED TYPES WITH SESSION MANAGEMENT
-// ============================================
-
 export type TeacherRole = "Supervisor" | "Assistant";
 export type ExamSession = "Morning" | "Afternoon" | "Evening";
 
+// ✅ STRICTLY LIMITED TO YOUR 4 RANKS
 export type TeacherRank =
-  | "Professor"
   | "Associate Professor"
-  | "Assistant Professor"
   | "Lecturer"
-  | "Instructor";
+  | "Associate Lecturer"
+  | "Tutor";
 
-// Ranks that can be Supervisors
-export const SUPERVISOR_RANKS: TeacherRank[] = [
-  "Professor",
-  "Associate Professor",
-];
+// ✅ Supervisor: Only Associate Professors
+export const SUPERVISOR_RANKS: TeacherRank[] = ["Associate Professor"];
 
-// Ranks that can be Assistants
+// ✅ Assistant: All ranks (including Tutors) can be assistants
 export const ASSISTANT_RANKS: TeacherRank[] = [
+  "Associate Professor",
   "Lecturer",
-  "Assistant Professor",
-  "Instructor",
+  "Associate Lecturer",
+  "Tutor",
 ];
 
-// FIXED: Added exam_date field that was missing
 export interface TeacherAssignment {
   assignment_id: number;
   exam_room_id: number;
   teacher_id: number;
   role: TeacherRole;
-  exam_date: string | null; // ADDED: This field was missing but exists in DB
   session: ExamSession | null;
   shift_start: string | null;
   shift_end: string | null;
   assigned_at: string | null;
-  link_id: number | null; // NOTE: This should typically be NULL - see explanation below
 }
-
-/**
- * IMPORTANT NOTE ABOUT link_id:
- *
- * The link_id field in teacher_assignment is typically NULL because:
- *
- * 1. Teachers are assigned to EXAM ROOMS for a specific DATE and SESSION
- * 2. They are NOT assigned to individual exams
- * 3. Multiple exams can occur in one room during one session (primary + secondary groups)
- * 4. Teachers supervise the entire room, not individual exams
- *
- * The exam_room_exam_link table (which uses link_id) handles the relationship
- * between exams and rooms. The teacher_assignment table handles which teachers
- * supervise which rooms.
- *
- * If link_id is NOT NULL in your database, it suggests a schema design issue.
- *
- * RECOMMENDED: Remove link_id from teacher_assignment table entirely, or ensure
- * it's always set to NULL when creating assignments.
- */
 
 export interface Teacher {
   teacher_id: number;
   name: string;
   rank: TeacherRank;
   department: string;
-  total_periods_assigned: number | null; // Now tracks exam invigilation assignments
+  total_periods_assigned: number | null;
 }
 
 export interface Exam {
@@ -112,39 +83,40 @@ export function getEligibleRoles(teacherRank: TeacherRank): TeacherRole[] {
   return roles;
 }
 
-// Type for teacher with assignment capability info
 export interface TeacherWithCapability extends Teacher {
   canBeSupervisor: boolean;
   canBeAssistant: boolean;
   eligibleRoles: TeacherRole[];
 }
 
-// Transform teacher to include capability info
 export function enrichTeacherWithCapability(
   teacher: Teacher,
 ): TeacherWithCapability {
-  const canBeSupervisor = SUPERVISOR_RANKS.includes(teacher.rank);
-  const canBeAssistant = ASSISTANT_RANKS.includes(teacher.rank);
+  // Cast rank safely to ensure it matches the type
+  const rank = teacher.rank as TeacherRank;
+
+  const canBeSupervisor = SUPERVISOR_RANKS.includes(rank);
+  const canBeAssistant = ASSISTANT_RANKS.includes(rank);
 
   return {
     ...teacher,
     canBeSupervisor,
     canBeAssistant,
-    eligibleRoles: getEligibleRoles(teacher.rank),
+    eligibleRoles: getEligibleRoles(rank),
   };
 }
 
-// Type for exam room assignment status
 export interface ExamRoomAssignmentStatus {
   exam_room_id: number;
   hasSupervisor: boolean;
   hasAssistant: boolean;
   supervisorId: number | null;
   assistantId: number | null;
+  supervisorName?: string;
+  assistantName?: string;
   isFullyStaffed: boolean;
 }
 
-// NEW: Teacher availability info
 export interface TeacherAvailability {
   teacher_id: number;
   is_available: boolean;
@@ -157,13 +129,11 @@ export interface TeacherAvailability {
   }[];
 }
 
-// NEW: Teacher with availability and workload info
 export interface TeacherWithAvailability extends TeacherWithCapability {
   availability: TeacherAvailability;
   workload_level: "Light" | "Medium" | "High";
 }
 
-// Helper to calculate workload level
 export function getWorkloadLevel(
   periods: number | null,
 ): "Light" | "Medium" | "High" {
@@ -173,7 +143,6 @@ export function getWorkloadLevel(
   return "Light";
 }
 
-// Validation error types
 export class TeacherAssignmentError extends Error {
   constructor(message: string) {
     super(message);
@@ -183,24 +152,14 @@ export class TeacherAssignmentError extends Error {
 
 export class InvalidRoleError extends TeacherAssignmentError {
   constructor(teacherRank: TeacherRank, attemptedRole: TeacherRole) {
-    super(
-      `A ${teacherRank} cannot be assigned as ${attemptedRole}. ` +
-        `${
-          attemptedRole === "Supervisor"
-            ? "Only Professors and Associate Professors can be Supervisors."
-            : "Only Lecturers, Assistant Professors, and Instructors can be Assistants."
-        }`,
-    );
+    super(`Invalid Role: ${teacherRank} cannot be ${attemptedRole}`);
     this.name = "InvalidRoleError";
   }
 }
 
 export class RoleAlreadyFilledError extends TeacherAssignmentError {
   constructor(role: TeacherRole, examRoomId: number) {
-    super(
-      `The ${role} role is already filled for exam room #${examRoomId}. ` +
-        `Please remove the existing ${role} before assigning a new one.`,
-    );
+    super(`Role ${role} is already filled for this room.`);
     this.name = "RoleAlreadyFilledError";
   }
 }
@@ -212,22 +171,16 @@ export class TimeConflictError extends TeacherAssignmentError {
     session: ExamSession,
     conflictingRoom?: string,
   ) {
-    super(
-      `${teacherName} is already assigned to ${conflictingRoom ? `room ${conflictingRoom}` : "another exam"} ` +
-        `on ${examDate} during the ${session} session. ` +
-        `A teacher cannot be assigned to multiple exams in the same time slot.`,
-    );
+    super(`${teacherName} is busy on ${examDate} (${session}).`);
     this.name = "TimeConflictError";
   }
 }
 
-// Helper to format session display
 export function formatSession(session: ExamSession | null): string {
   if (!session) return "Unknown Session";
   return session;
 }
 
-// Helper to get session time range (approximate)
 export function getSessionTimeRange(
   session: ExamSession | null,
 ): { start: string; end: string } | null {
@@ -236,8 +189,7 @@ export function getSessionTimeRange(
       return { start: "08:00", end: "12:00" };
     case "Afternoon":
       return { start: "13:00", end: "17:00" };
-    case "Evening":
-      return { start: "18:00", end: "21:00" };
+
     default:
       return null;
   }

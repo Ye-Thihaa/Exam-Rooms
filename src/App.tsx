@@ -39,6 +39,8 @@ import StudentExams from "./pages/student/StudentExams";
 import NotFound from "./pages/NotFound";
 import SpecialExamSeatingAssignment from "./pages/exam-officer/SpecialExamSeatingAssignment";
 import UserManual from "./pages/exam-officer/UserManual";
+import RoomRanges from "./components/RoomRanges";
+import RoomRangesPage from "./pages/exam-officer/RoomRangesPage";
 
 const queryClient = new QueryClient();
 
@@ -90,6 +92,14 @@ const App = () => (
               element={
                 <ProtectedRoute allowedRoles={["exam_officer"]}>
                   <StudentRecords />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/exam-officer/room-ranges"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <RoomRangesPage />
                 </ProtectedRoute>
               }
             />
