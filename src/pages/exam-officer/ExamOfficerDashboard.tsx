@@ -98,10 +98,10 @@ const ExamOfficerDashboard: React.FC = () => {
         title="Exam Officer Dashboard"
         description="Manage examinations and seating arrangements"
         actions={
-          <Link to="/exam-officer/create-exam">
+          <Link to="/exam-officer/insert-data">
             <Button>
               <Plus className="h-4 w-4 mr-2" />
-              Create Exam
+              Insert Data
             </Button>
           </Link>
         }
