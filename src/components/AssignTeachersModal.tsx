@@ -216,7 +216,6 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
 
       setSupervisors(availableSupervisors);
       setAssistants(availableAssistants);
-
       // Reset local selections on data reload
       setSelectedSupervisorId(null);
       setSelectedAssistantId(null);
@@ -235,6 +234,8 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
     setSubmitting(true);
     setError(null);
     setSuccessMessage(null);
+
+    const promises = [];
 
     try {
       // Delete existing assignments first to avoid unique constraint violation
