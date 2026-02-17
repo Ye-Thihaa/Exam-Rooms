@@ -146,12 +146,12 @@ const ExamOfficerDashboard: React.FC = () => {
             Quick Actions
           </h3>
           <div className="grid grid-cols-2 gap-4">
-            <Link to="/exam-officer/create-exam">
+            <Link to="/exam-officer/insert-data">
               <div className="p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-accent/50 transition-all cursor-pointer group">
                 <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-3 group-hover:bg-primary/20 transition-colors">
                   <Plus className="h-6 w-6 text-primary" />
                 </div>
-                <p className="font-medium text-foreground">Create Exam</p>
+                <p className="font-medium text-foreground">Insert Data</p>
                 <p className="text-sm text-muted-foreground">
                   Set up a new exam
                 </p>

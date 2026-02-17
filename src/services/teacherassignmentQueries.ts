@@ -115,8 +115,7 @@ export const teacherAssignmentQueries = {
     const { data: busy } = await supabase
       .from("teacher_assignment")
       .select("teacher_id")
-      .eq("exam_date", examDate)
-      .eq("session", session);
+      .eq("exam_date", examDate);
 
     const busyIds = (busy || []).map((b: any) => b.teacher_id);
 

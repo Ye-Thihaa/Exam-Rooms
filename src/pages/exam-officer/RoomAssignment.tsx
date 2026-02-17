@@ -732,12 +732,15 @@ const RoomAssignment: React.FC = () => {
           onBack={() => setCurrentStep(1)}
           onSave={handleSave}
           isSaving={isSaving}
+          studentStats={studentStats}
           getAvailableSemestersForYear={getAvailableSemestersForYear}
           getAvailableProgramsForYear={getAvailableProgramsForYear}
           getAvailableSpecializationsForYear={
             getAvailableSpecializationsForYear
           }
           getDefaultGroupValues={getDefaultGroupValues}
+          getUnassignedCountForGroup={getUnassignedCountForGroup}
+          getTotalAssignedForGroup={getTotalAssignedForGroup}
         />
       )}
     </DashboardLayout>
