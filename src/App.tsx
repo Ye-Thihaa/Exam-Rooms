@@ -42,6 +42,7 @@ import UserManual from "./pages/exam-officer/UserManual";
 import RoomRanges from "./components/RoomRanges";
 import RoomRangesPage from "./pages/exam-officer/RoomRangesPage";
 import InsertDataPage from "./pages/exam-officer/InsertDataPage";
+import TeacherAssignmentsTable from "./pages/exam-officer/TeacherAssignmentsTable";
 
 const queryClient = new QueryClient();
 
@@ -129,7 +130,7 @@ const App = () => (
               }
             />
             <Route
-              path="/exam-officer/teacher-assignments"
+              path="/exam-officer/assign-teachers"
               element={
                 <ProtectedRoute allowedRoles={["exam_officer"]}>
                   <ExamsOverview />
@@ -141,6 +142,14 @@ const App = () => (
               element={
                 <ProtectedRoute allowedRoles={["exam_officer"]}>
                   <TeacherView />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/exam-officer/teacher-assignments"
+              element={
+                <ProtectedRoute allowedRoles={["exam_officer"]}>
+                  <TeacherAssignmentsTable />
                 </ProtectedRoute>
               }
             />

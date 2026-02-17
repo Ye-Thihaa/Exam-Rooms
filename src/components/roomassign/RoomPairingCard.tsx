@@ -36,7 +36,40 @@ interface RoomPairingCardProps {
   getDefaultGroupValues: (
     yearLevel: string,
   ) => Pick<StudentGroup, "sem" | "program" | "specialization">;
+
+  // ✅ NEW: real-time remaining count callbacks
+  getPrimaryRemaining: () => number | null;
+  getSecondaryRemaining: () => number | null;
 }
+
+// ✅ Helper badge: shows "X left", "Fully assigned", or "X over limit"
+const RemainingBadge: React.FC<{ remaining: number | null }> = ({
+  remaining,
+}) => {
+  if (remaining === null) return null;
+
+  const colorClass =
+    remaining < 0
+      ? "bg-red-100 text-red-700 border-red-300"
+      : remaining === 0
+        ? "bg-green-100 text-green-700 border-green-300"
+        : "bg-orange-100 text-orange-700 border-orange-300";
+
+  const label =
+    remaining < 0
+      ? `${Math.abs(remaining)} over limit`
+      : remaining === 0
+        ? "Fully pre-assigned"
+        : `${remaining} left`;
+
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${colorClass}`}
+    >
+      {label}
+    </span>
+  );
+};
 
 const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
   pairing,
@@ -46,9 +79,15 @@ const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
   getAvailableProgramsForYear,
   getAvailableSpecializationsForYear,
   getDefaultGroupValues,
+  getPrimaryRemaining,
+  getSecondaryRemaining,
 }) => {
   const totalStudents = pairing.students_primary + pairing.students_secondary;
   const exceedsCapacity = totalStudents > 36;
+
+  // ✅ Compute remaining counts once per render
+  const primaryRemaining = getPrimaryRemaining();
+  const secondaryRemaining = getSecondaryRemaining();
 
   const isDuplicateGroup =
     pairing.group_primary.year_level &&
@@ -60,10 +99,6 @@ const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
       pairing.group_secondary.specialization &&
     pairing.group_primary.program !== "";
 
-  /**
-   * ✅ Handle year level change
-   * Auto-fills semester, program, and specialization based on year level
-   */
   const handleYearChange = (
     groupType: "group_primary" | "group_secondary",
     yearLevel: string,
@@ -75,9 +110,6 @@ const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
     });
   };
 
-  /**
-   * ✅ Handle field changes (semester, program, specialization)
-   */
   const handleFieldChange = (
     groupType: "group_primary" | "group_secondary",
     field: keyof StudentGroup,
@@ -93,16 +125,12 @@ const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
       [field]: value,
     } as StudentGroup;
 
-    // ✅ AUTO-UPDATE specialization based on program
     if (field === "program") {
       if (nextGroup.year_level === "1" || nextGroup.year_level === "2") {
-        // Year 1 & 2: Program is CST, specialization is CST
         nextGroup.specialization = "CST";
       } else if (nextGroup.year_level === "3") {
-        // Year 3: Specialization matches program (CS or CT)
         nextGroup.specialization = value;
       } else if (nextGroup.year_level === "4") {
-        // Year 4: Clear specialization when program changes (user must select)
         nextGroup.specialization = "";
       }
     }
@@ -110,9 +138,6 @@ const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
     onUpdate(pairing.id, groupType, nextGroup);
   };
 
-  /**
-   * ✅ Handle student count change
-   */
   const handleStudentCountChange = (
     groupType: "students_primary" | "students_secondary",
     value: number,
@@ -139,78 +164,94 @@ const RoomPairingCard: React.FC<RoomPairingCardProps> = ({
           </Badge>
         </div>
 
-        {/* Primary Group */}
-        <StudentGroupSelector
-          label="Primary Group"
-          group={pairing.group_primary}
-          availableYearLevels={availableOptions.yearLevels}
-          availableSemesters={getAvailableSemestersForYear(
-            pairing.group_primary.year_level,
-            availableOptions.semesters,
-          )}
-          availablePrograms={getAvailableProgramsForYear(
-            pairing.group_primary.year_level,
-            availableOptions.programs,
-          )}
-          availableSpecializations={getAvailableSpecializationsForYear(
-            pairing.group_primary.year_level,
-            pairing.group_primary.program,
-          )}
-          onYearChange={(value) => handleYearChange("group_primary", value)}
-          onSemesterChange={(value) =>
-            handleFieldChange("group_primary", "sem", value)
-          }
-          onProgramChange={(value) =>
-            handleFieldChange("group_primary", "program", value)
-          }
-          onSpecializationChange={(value) =>
-            handleFieldChange("group_primary", "specialization", value)
-          }
-          studentCount={pairing.students_primary}
-          onStudentCountChange={(value) =>
-            handleStudentCountChange("students_primary", value)
-          }
-        />
+        {/* ✅ Primary Group — label row with live remaining badge */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-gray-700">
+              Primary Group
+            </span>
+            <RemainingBadge remaining={primaryRemaining} />
+          </div>
+          <StudentGroupSelector
+            label=""
+            group={pairing.group_primary}
+            availableYearLevels={availableOptions.yearLevels}
+            availableSemesters={getAvailableSemestersForYear(
+              pairing.group_primary.year_level,
+              availableOptions.semesters,
+            )}
+            availablePrograms={getAvailableProgramsForYear(
+              pairing.group_primary.year_level,
+              availableOptions.programs,
+            )}
+            availableSpecializations={getAvailableSpecializationsForYear(
+              pairing.group_primary.year_level,
+              pairing.group_primary.program,
+            )}
+            onYearChange={(value) => handleYearChange("group_primary", value)}
+            onSemesterChange={(value) =>
+              handleFieldChange("group_primary", "sem", value)
+            }
+            onProgramChange={(value) =>
+              handleFieldChange("group_primary", "program", value)
+            }
+            onSpecializationChange={(value) =>
+              handleFieldChange("group_primary", "specialization", value)
+            }
+            studentCount={pairing.students_primary}
+            onStudentCountChange={(value) =>
+              handleStudentCountChange("students_primary", value)
+            }
+          />
+        </div>
 
-        {/* Secondary Group */}
-        <StudentGroupSelector
-          label="Secondary Group"
-          group={pairing.group_secondary}
-          availableYearLevels={availableOptions.yearLevels}
-          availableSemesters={getAvailableSemestersForYear(
-            pairing.group_secondary.year_level,
-            availableOptions.semesters,
-          )}
-          availablePrograms={getAvailableProgramsForYear(
-            pairing.group_secondary.year_level,
-            availableOptions.programs,
-          )}
-          availableSpecializations={getAvailableSpecializationsForYear(
-            pairing.group_secondary.year_level,
-            pairing.group_secondary.program,
-          )}
-          onYearChange={(value) => handleYearChange("group_secondary", value)}
-          onSemesterChange={(value) =>
-            handleFieldChange("group_secondary", "sem", value)
-          }
-          onProgramChange={(value) =>
-            handleFieldChange("group_secondary", "program", value)
-          }
-          onSpecializationChange={(value) =>
-            handleFieldChange("group_secondary", "specialization", value)
-          }
-          studentCount={pairing.students_secondary}
-          onStudentCountChange={(value) =>
-            handleStudentCountChange("students_secondary", value)
-          }
-          disabledProgram={
-            pairing.group_primary.year_level ===
-              pairing.group_secondary.year_level &&
-            pairing.group_primary.sem === pairing.group_secondary.sem
-              ? pairing.group_primary.program
-              : undefined
-          }
-        />
+        {/* ✅ Secondary Group — label row with live remaining badge */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-gray-700">
+              Secondary Group
+            </span>
+            <RemainingBadge remaining={secondaryRemaining} />
+          </div>
+          <StudentGroupSelector
+            label=""
+            group={pairing.group_secondary}
+            availableYearLevels={availableOptions.yearLevels}
+            availableSemesters={getAvailableSemestersForYear(
+              pairing.group_secondary.year_level,
+              availableOptions.semesters,
+            )}
+            availablePrograms={getAvailableProgramsForYear(
+              pairing.group_secondary.year_level,
+              availableOptions.programs,
+            )}
+            availableSpecializations={getAvailableSpecializationsForYear(
+              pairing.group_secondary.year_level,
+              pairing.group_secondary.program,
+            )}
+            onYearChange={(value) => handleYearChange("group_secondary", value)}
+            onSemesterChange={(value) =>
+              handleFieldChange("group_secondary", "sem", value)
+            }
+            onProgramChange={(value) =>
+              handleFieldChange("group_secondary", "program", value)
+            }
+            onSpecializationChange={(value) =>
+              handleFieldChange("group_secondary", "specialization", value)
+            }
+            studentCount={pairing.students_secondary}
+            onStudentCountChange={(value) =>
+              handleStudentCountChange("students_secondary", value)
+            }
+            disabledProgram={
+              pairing.group_primary.year_level ===
+                pairing.group_secondary.year_level &&
+              pairing.group_primary.sem === pairing.group_secondary.sem
+                ? pairing.group_primary.program
+                : undefined
+            }
+          />
+        </div>
 
         {/* Warnings */}
         {exceedsCapacity && (

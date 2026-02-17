@@ -1,18 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Loader2,
-  DoorOpen,
-  Users,
-  RefreshCw,
-  ArrowRight,
-  Building2,
-  GraduationCap,
-  Download,
-  FileText,
-} from "lucide-react";
+import { Loader2, RefreshCw, Download } from "lucide-react";
 import { examRoomQueries } from "@/services/examroomQueries";
 import { seatingAssignmentQueries } from "@/services/seatingassignmentQueries";
 import type { ExamRoomWithDetails } from "@/services/examroomQueries";
@@ -38,7 +27,7 @@ const RoomRangesEnhanced: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const contentRef = React.useRef<HTMLDivElement>(null);
+  const tableRef = React.useRef<HTMLTableSectionElement>(null);
 
   useEffect(() => {
     fetchRoomRanges();
@@ -46,15 +35,12 @@ const RoomRangesEnhanced: React.FC = () => {
 
   const fetchRoomRanges = async (isRefresh = false) => {
     try {
-      if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
+
       setError(null);
 
       const examRoomsResult = await examRoomQueries.getAllWithDetails();
-
       if (!examRoomsResult.success || !examRoomsResult.data) {
         throw new Error("Failed to fetch exam rooms");
       }
@@ -66,32 +52,19 @@ const RoomRangesEnhanced: React.FC = () => {
               await seatingAssignmentQueries.getByExamRoomId(
                 examRoom.exam_room_id!,
               );
-
             const primaryGroup = seatingAssignments.filter(
               (s) => s.student_group === "A",
             );
             const secondaryGroup = seatingAssignments.filter(
               (s) => s.student_group === "B",
             );
-
-            const primaryRange = calculateRange(primaryGroup);
-            const secondaryRange = calculateRange(secondaryGroup);
-
             return {
               examRoom,
-              primaryRange,
-              secondaryRange,
+              primaryRange: calculateRange(primaryGroup),
+              secondaryRange: calculateRange(secondaryGroup),
             };
-          } catch (err) {
-            console.error(
-              `Error fetching seating for room ${examRoom.exam_room_id}:`,
-              err,
-            );
-            return {
-              examRoom,
-              primaryRange: null,
-              secondaryRange: null,
-            };
+          } catch {
+            return { examRoom, primaryRange: null, secondaryRange: null };
           }
         }),
       );
@@ -110,14 +83,11 @@ const RoomRangesEnhanced: React.FC = () => {
     assignments: SeatingAssignmentWithDetails[],
   ): StudentRange | null => {
     if (assignments.length === 0) return null;
-
     const studentNumbers = assignments
       .map((a) => a.student?.student_number)
       .filter((num): num is string => !!num)
       .sort();
-
     if (studentNumbers.length === 0) return null;
-
     return {
       min: studentNumbers[0],
       max: studentNumbers[studentNumbers.length - 1],
@@ -125,42 +95,47 @@ const RoomRangesEnhanced: React.FC = () => {
     };
   };
 
-  const getTotalStudents = () => {
-    return roomRanges.reduce((total, room) => {
-      const primaryCount = room.primaryRange?.count || 0;
-      const secondaryCount = room.secondaryRange?.count || 0;
-      return total + primaryCount + secondaryCount;
-    }, 0);
-  };
+  const formatGroupInfo = (
+    examRoom: ExamRoomWithDetails,
+    group: "primary" | "secondary",
+  ) => {
+    const yearLevel =
+      group === "primary"
+        ? examRoom.year_level_primary
+        : examRoom.year_level_secondary;
+    const sem =
+      group === "primary" ? examRoom.sem_primary : examRoom.sem_secondary;
+    const program =
+      group === "primary"
+        ? examRoom.program_primary
+        : examRoom.program_secondary;
+    const spec =
+      group === "primary"
+        ? examRoom.specialization_primary
+        : examRoom.specialization_secondary;
 
-  const getRoomsWithAssignments = () => {
-    return roomRanges.filter((room) => room.primaryRange || room.secondaryRange)
-      .length;
+    if (!yearLevel || !sem || !program) return null;
+    return { yearLevel, sem, program, spec };
   };
 
   const exportToPDF = async () => {
-    if (!contentRef.current) return;
-
+    if (!tableRef.current) return;
     setExporting(true);
     try {
-      // Capture the content as canvas
-      const canvas = await html2canvas(contentRef.current, {
-        scale: 2, // Higher quality
+      const canvas = await html2canvas(tableRef.current, {
+        scale: 2,
         useCORS: true,
         logging: false,
         backgroundColor: "#ffffff",
       });
 
-      // Calculate PDF dimensions
-      const imgWidth = 210; // A4 width in mm
-      const pageHeight = 297; // A4 height in mm
+      const imgWidth = 210;
+      const pageHeight = 297;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
       const pdf = new jsPDF("p", "mm", "a4");
       let heightLeft = imgHeight;
       let position = 0;
 
-      // Add first page
       pdf.addImage(
         canvas.toDataURL("image/png"),
         "PNG",
@@ -171,7 +146,6 @@ const RoomRangesEnhanced: React.FC = () => {
       );
       heightLeft -= pageHeight;
 
-      // Add additional pages if content is longer than one page
       while (heightLeft > 0) {
         position = heightLeft - imgHeight;
         pdf.addPage();
@@ -186,12 +160,8 @@ const RoomRangesEnhanced: React.FC = () => {
         heightLeft -= pageHeight;
       }
 
-      // Generate filename with timestamp
       const timestamp = new Date().toISOString().split("T")[0];
-      const filename = `Room_Ranges_${timestamp}.pdf`;
-
-      // Save PDF
-      pdf.save(filename);
+      pdf.save(`Room_Ranges_${timestamp}.pdf`);
     } catch (error) {
       console.error("Error exporting to PDF:", error);
       alert("Failed to export to PDF. Please try again.");
@@ -202,319 +172,214 @@ const RoomRangesEnhanced: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[500px]">
-        <div className="text-center space-y-4">
-          <div className="relative">
-            <div className="w-20 h-20 border-4 border-primary/20 border-t-primary rounded-full animate-spin mx-auto" />
-          </div>
-          <div>
-            <p className="font-semibold text-lg">Loading Room Ranges</p>
-            <p className="text-sm text-muted-foreground">
-              Fetching seating assignments...
-            </p>
-          </div>
-        </div>
+      <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
+        <Loader2 className="h-8 w-8 animate-spin" />
+        <p className="text-sm">Loading room ranges...</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Card className="border-destructive/50 bg-destructive/5 max-w-md">
-          <CardContent className="pt-6 text-center space-y-4">
-            <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mx-auto">
-              <Building2 className="h-6 w-6 text-destructive" />
-            </div>
-            <div>
-              <p className="font-semibold text-destructive">{error}</p>
-              <p className="text-sm text-muted-foreground mt-2">
-                Please try refreshing the page
-              </p>
-            </div>
-            <Button
-              onClick={() => fetchRoomRanges()}
-              variant="outline"
-              size="sm"
-            >
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Retry
-            </Button>
-          </CardContent>
-        </Card>
+      <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
+        <p className="text-sm text-destructive">{error}</p>
+        <Button onClick={() => fetchRoomRanges()} variant="outline" size="sm">
+          Retry
+        </Button>
       </div>
     );
   }
 
   if (roomRanges.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Card className="max-w-md">
-          <CardContent className="pt-6 text-center space-y-4">
-            <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mx-auto">
-              <DoorOpen className="h-8 w-8 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="font-semibold text-lg">No Room Assignments</p>
-              <p className="text-sm text-muted-foreground mt-2">
-                Create room assignments and generate seating plans to see
-                student ranges
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="flex flex-col items-center justify-center py-20 gap-2 text-muted-foreground">
+        <p className="text-sm">No room assignments found.</p>
       </div>
     );
   }
 
   return (
-    <div ref={contentRef} className="space-y-6">
-      {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 border-blue-200 dark:border-blue-800">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
-                  Total Rooms
-                </p>
-                <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">
-                  {roomRanges.length}
-                </p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-blue-200/50 dark:bg-blue-800/50 flex items-center justify-center">
-                <DoorOpen className="h-6 w-6 text-blue-700 dark:text-blue-300" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950 dark:to-green-900 border-green-200 dark:border-green-800">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-green-700 dark:text-green-300">
-                  Rooms with Students
-                </p>
-                <p className="text-3xl font-bold text-green-900 dark:text-green-100">
-                  {getRoomsWithAssignments()}
-                </p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-green-200/50 dark:bg-green-800/50 flex items-center justify-center">
-                <Building2 className="h-6 w-6 text-green-700 dark:text-green-300" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950 dark:to-purple-900 border-purple-200 dark:border-purple-800">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-purple-700 dark:text-purple-300">
-                  Total Students
-                </p>
-                <p className="text-3xl font-bold text-purple-900 dark:text-purple-100">
-                  {getTotalStudents()}
-                </p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-purple-200/50 dark:bg-purple-800/50 flex items-center justify-center">
-                <GraduationCap className="h-6 w-6 text-purple-700 dark:text-purple-300" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Action Buttons */}
-      <div className="flex justify-between items-center">
-        <Button
-          onClick={exportToPDF}
-          disabled={exporting || roomRanges.length === 0}
-          variant="default"
-          size="default"
-          className="gap-2"
-        >
-          {exporting ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Exporting...
-            </>
-          ) : (
-            <>
-              <FileText className="h-4 w-4" />
-              Export to PDF
-            </>
-          )}
-        </Button>
-
-        <Button
-          onClick={() => fetchRoomRanges(true)}
-          disabled={refreshing}
-          variant="outline"
-          size="sm"
-        >
-          <RefreshCw
-            className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`}
-          />
-          Refresh Data
-        </Button>
-      </div>
-
-      {/* Room Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-        {roomRanges.map(({ examRoom, primaryRange, secondaryRange }) => (
-          <Card
-            key={examRoom.exam_room_id}
-            className="group hover:shadow-xl transition-all duration-300 border-2 hover:border-primary/50 overflow-hidden"
+    <div className="space-y-4 p-4">
+      {/* Action Buttons - excluded from PDF */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Room Ranges</h2>
+        <div className="flex gap-2">
+          <Button
+            onClick={exportToPDF}
+            disabled={exporting}
+            size="sm"
+            className="gap-1.5"
           >
-            {/* Room Header */}
-            <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent p-4 border-b">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <DoorOpen className="h-6 w-6 text-primary" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-xl">
-                      Room {examRoom.room?.room_number || "N/A"}
-                    </h3>
-                    <p className="text-xs text-muted-foreground">
-                      Capacity:{" "}
-                      {examRoom.assigned_capacity ||
-                        examRoom.room?.capacity ||
-                        0}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
+            {exporting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            {exporting ? "Exporting..." : "Export PDF"}
+          </Button>
+          <Button
+            onClick={() => fetchRoomRanges(true)}
+            disabled={refreshing}
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
+            />
+            Refresh
+          </Button>
+        </div>
+      </div>
 
-            <CardContent className="p-5 space-y-5">
-              {/* Primary Group */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Badge
-                    variant="default"
-                    className="text-xs font-semibold px-3 py-1"
+      {/* Table — thead and title shown on screen only, tbody exported to PDF */}
+      <div className="bg-white rounded-lg border overflow-hidden">
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr className="bg-gray-50 border-b">
+              <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r w-24">
+                Room No.
+              </th>
+              <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r">
+                Group A Info
+              </th>
+              <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r w-44">
+                Group A Range
+              </th>
+              <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r">
+                Group B Info
+              </th>
+              <th className="px-4 py-3 text-left font-semibold text-gray-700 w-44">
+                Group B Range
+              </th>
+            </tr>
+          </thead>
+          <tbody ref={tableRef}>
+            {roomRanges.map(
+              ({ examRoom, primaryRange, secondaryRange }, idx) => {
+                const primaryInfo = formatGroupInfo(examRoom, "primary");
+                const secondaryInfo = formatGroupInfo(examRoom, "secondary");
+
+                return (
+                  <tr
+                    key={examRoom.exam_room_id}
+                    className={`border-b last:border-b-0 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}
                   >
-                    PRIMARY GROUP
-                  </Badge>
-                  {primaryRange && (
-                    <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-1 rounded">
-                      {primaryRange.count} students
-                    </span>
-                  )}
-                </div>
+                    {/* Room Number */}
+                    <td className="px-4 py-3 border-r font-medium text-gray-900 align-top">
+                      <span className="font-semibold">
+                        {examRoom.room?.room_number || "N/A"}
+                      </span>
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        Cap:{" "}
+                        {examRoom.assigned_capacity ??
+                          examRoom.room?.capacity ??
+                          0}
+                      </div>
+                    </td>
 
-                {examRoom.year_level_primary &&
-                examRoom.sem_primary &&
-                examRoom.program_primary ? (
-                  <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/50 dark:to-blue-900/30 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
-                    <div className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-2 flex flex-wrap gap-1">
-                      <span className="bg-blue-200 dark:bg-blue-800 px-2 py-0.5 rounded">
-                        Year {examRoom.year_level_primary}
-                      </span>
-                      <span className="bg-blue-200 dark:bg-blue-800 px-2 py-0.5 rounded">
-                        Sem {examRoom.sem_primary}
-                      </span>
-                      <span className="bg-blue-200 dark:bg-blue-800 px-2 py-0.5 rounded">
-                        {examRoom.program_primary}
-                      </span>
-                      {examRoom.specialization_primary && (
-                        <span className="bg-blue-200 dark:bg-blue-800 px-2 py-0.5 rounded">
-                          {examRoom.specialization_primary}
+                    {/* Group A Info */}
+                    <td className="px-4 py-3 border-r align-top">
+                      {primaryInfo ? (
+                        <div className="space-y-1">
+                          <div className="font-medium text-gray-800">
+                            {primaryInfo.program}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            Year {primaryInfo.yearLevel} · Sem {primaryInfo.sem}
+                          </div>
+                          {primaryInfo.spec && (
+                            <div className="text-xs text-gray-500">
+                              {primaryInfo.spec}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 text-xs italic">
+                          Not assigned
                         </span>
                       )}
-                    </div>
-                    {primaryRange ? (
-                      <div className="flex items-center gap-2 mt-3">
-                        <span className="font-mono text-sm font-bold text-blue-900 dark:text-blue-100 bg-white dark:bg-blue-950 px-3 py-1.5 rounded-lg border border-blue-300 dark:border-blue-700">
-                          {primaryRange.min}
-                        </span>
-                        <ArrowRight className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                        <span className="font-mono text-sm font-bold text-blue-900 dark:text-blue-100 bg-white dark:bg-blue-950 px-3 py-1.5 rounded-lg border border-blue-300 dark:border-blue-700">
-                          {primaryRange.max}
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="text-xs text-blue-600 dark:text-blue-400 italic mt-2">
-                        No students assigned yet
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="bg-muted/30 rounded-xl p-4 border border-dashed border-muted-foreground/30">
-                    <p className="text-xs text-muted-foreground italic text-center">
-                      No primary group assigned
-                    </p>
-                  </div>
-                )}
-              </div>
+                    </td>
 
-              {/* Secondary Group */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Badge
-                    variant="secondary"
-                    className="text-xs font-semibold px-3 py-1"
-                  >
-                    SECONDARY GROUP
-                  </Badge>
-                  {secondaryRange && (
-                    <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-1 rounded">
-                      {secondaryRange.count} students
-                    </span>
-                  )}
-                </div>
-
-                {examRoom.year_level_secondary &&
-                examRoom.sem_secondary &&
-                examRoom.program_secondary ? (
-                  <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/50 dark:to-amber-900/30 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
-                    <div className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-2 flex flex-wrap gap-1">
-                      <span className="bg-amber-200 dark:bg-amber-800 px-2 py-0.5 rounded">
-                        Year {examRoom.year_level_secondary}
-                      </span>
-                      <span className="bg-amber-200 dark:bg-amber-800 px-2 py-0.5 rounded">
-                        Sem {examRoom.sem_secondary}
-                      </span>
-                      <span className="bg-amber-200 dark:bg-amber-800 px-2 py-0.5 rounded">
-                        {examRoom.program_secondary}
-                      </span>
-                      {examRoom.specialization_secondary && (
-                        <span className="bg-amber-200 dark:bg-amber-800 px-2 py-0.5 rounded">
-                          {examRoom.specialization_secondary}
+                    {/* Group A Range */}
+                    <td className="px-4 py-3 border-r align-top">
+                      {primaryRange ? (
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5 font-mono text-sm">
+                            <span className="text-gray-700">
+                              {primaryRange.min}
+                            </span>
+                            <span className="text-gray-400">→</span>
+                            <span className="text-gray-700">
+                              {primaryRange.max}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-400">
+                            {primaryRange.count} student
+                            {primaryRange.count !== 1 ? "s" : ""}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 text-xs italic">
+                          No students
                         </span>
                       )}
-                    </div>
-                    {secondaryRange ? (
-                      <div className="flex items-center gap-2 mt-3">
-                        <span className="font-mono text-sm font-bold text-amber-900 dark:text-amber-100 bg-white dark:bg-amber-950 px-3 py-1.5 rounded-lg border border-amber-300 dark:border-amber-700">
-                          {secondaryRange.min}
+                    </td>
+
+                    {/* Group B Info */}
+                    <td className="px-4 py-3 border-r align-top">
+                      {secondaryInfo ? (
+                        <div className="space-y-1">
+                          <div className="font-medium text-gray-800">
+                            {secondaryInfo.program}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            Year {secondaryInfo.yearLevel} · Sem{" "}
+                            {secondaryInfo.sem}
+                          </div>
+                          {secondaryInfo.spec && (
+                            <div className="text-xs text-gray-500">
+                              {secondaryInfo.spec}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 text-xs italic">
+                          Not assigned
                         </span>
-                        <ArrowRight className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                        <span className="font-mono text-sm font-bold text-amber-900 dark:text-amber-100 bg-white dark:bg-amber-950 px-3 py-1.5 rounded-lg border border-amber-300 dark:border-amber-700">
-                          {secondaryRange.max}
+                      )}
+                    </td>
+
+                    {/* Group B Range */}
+                    <td className="px-4 py-3 align-top">
+                      {secondaryRange ? (
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5 font-mono text-sm">
+                            <span className="text-gray-700">
+                              {secondaryRange.min}
+                            </span>
+                            <span className="text-gray-400">→</span>
+                            <span className="text-gray-700">
+                              {secondaryRange.max}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-400">
+                            {secondaryRange.count} student
+                            {secondaryRange.count !== 1 ? "s" : ""}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 text-xs italic">
+                          No students
                         </span>
-                      </div>
-                    ) : (
-                      <div className="text-xs text-amber-600 dark:text-amber-400 italic mt-2">
-                        No students assigned yet
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="bg-muted/30 rounded-xl p-4 border border-dashed border-muted-foreground/30">
-                    <p className="text-xs text-muted-foreground italic text-center">
-                      No secondary group assigned
-                    </p>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+                      )}
+                    </td>
+                  </tr>
+                );
+              },
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

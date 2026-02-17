@@ -35,6 +35,7 @@ import {
   AlertCircle,
   Database,
   ListOrdered,
+  ClipboardEdit,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -43,7 +44,7 @@ interface NavItem {
   label: string;
   path: string;
   danger?: boolean;
-  color?: string; // Custom color for specific routes
+  color?: string;
 }
 
 const roleNavItems: Record<string, NavItem[]> = {
@@ -122,9 +123,15 @@ const roleNavItems: Record<string, NavItem[]> = {
     },
     {
       icon: UserCog,
+      label: "Assign Teachers",
+      path: "/exam-officer/assign-teachers",
+      color: "text-emerald-500",
+    },
+    {
+      icon: ClipboardEdit,
       label: "Teacher Assignments",
       path: "/exam-officer/teacher-assignments",
-      color: "text-emerald-500",
+      color: "text-rose-500",
     },
     {
       icon: TriangleAlert,
@@ -232,7 +239,6 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
             {navItems.map((item) =>
               item.danger ? (
                 <React.Fragment key={item.path}>
-                  {/* Divider before Danger Zone */}
                   <div className="my-2 border-t border-red-500/20" />
                   <NavLink
                     to={item.path}

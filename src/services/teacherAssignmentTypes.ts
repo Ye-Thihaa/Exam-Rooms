@@ -9,9 +9,10 @@ export type TeacherRank =
   | "Tutor";
 
 // ✅ Supervisor: Only Associate Professors
-export const SUPERVISOR_RANKS: TeacherRank[] = ["Associate Professor"];
-
-// ✅ Assistant: All ranks (including Tutors) can be assistants
+export const SUPERVISOR_RANKS: TeacherRank[] = [
+  "Associate Professor",
+  "Lecturer",
+];
 export const ASSISTANT_RANKS: TeacherRank[] = [
   "Associate Professor",
   "Lecturer",
@@ -24,6 +25,7 @@ export interface TeacherAssignment {
   exam_room_id: number;
   teacher_id: number;
   role: TeacherRole;
+  exam_date: string | null;
   session: ExamSession | null;
   shift_start: string | null;
   shift_end: string | null;

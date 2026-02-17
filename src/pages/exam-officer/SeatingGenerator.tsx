@@ -1,6 +1,6 @@
 // pages/SeatingGenerator.tsx
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import DashboardLayout from "@/components/layouts/DashboardLayout";
 import PageHeader from "@/components/shared/PageHeader";
 import SeatingPlanGrid from "@/components/shared/SeatingPlanGrid";
@@ -23,7 +23,6 @@ import {
   SeatingGrid,
 } from "@/services/dynamicSeatingAlgorithm";
 import { validateSeatingArrangement } from "@/services/dynamicSeatingAlgorithm";
-
 import {
   RefreshCw,
   Users,
@@ -34,6 +33,7 @@ import {
   CheckCircle2,
   Eye,
   Loader2,
+  PlayCircle,
 } from "lucide-react";
 import { getExamRoomsWithDetails } from "@/services/examroomQueries";
 import { toast } from "sonner";
@@ -90,6 +90,16 @@ interface StudentData {
   secondaryStudents: Student[];
 }
 
+// ✅ NEW: Holds a fully generated (but not yet saved) room plan
+interface GeneratedRoomPlan {
+  examRoom: ExamRoomDetails;
+  seats: SeatAssignment[];
+  studentData: StudentData;
+  assignments: SeatingAssignmentInput[];
+  status: "ready" | "skipped" | "error";
+  message: string;
+}
+
 const SeatingGenerator: React.FC = () => {
   const [examRooms, setExamRooms] = useState<ExamRoomDetails[]>([]);
   const [loading, setLoading] = useState(true);
@@ -99,11 +109,26 @@ const SeatingGenerator: React.FC = () => {
   const [generatedSeats, setGeneratedSeats] = useState<SeatAssignment[]>([]);
   const [studentData, setStudentData] = useState<StudentData | null>(null);
 
-  // Preview state
+  // Single room preview state
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [generatingRoomId, setGeneratingRoomId] = useState<number | null>(null);
   const [viewingRoomId, setViewingRoomId] = useState<number | null>(null);
+
+  // ✅ NEW: Generate All state
+  const [isGeneratingAll, setIsGeneratingAll] = useState(false);
+  const [generateAllProgress, setGenerateAllProgress] = useState<{
+    current: number;
+    total: number;
+    currentRoom: string;
+  } | null>(null);
+  const [generatedPlans, setGeneratedPlans] = useState<GeneratedRoomPlan[]>([]);
+  const [showGenerateAllSummary, setShowGenerateAllSummary] = useState(false);
+  const [isSavingAll, setIsSavingAll] = useState(false);
+
+  // ✅ NEW: In-memory claimed student ID set to prevent cross-room duplicates
+  // during batch generation (before any saves happen)
+  const claimedStudentIds = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     loadExamRooms();
@@ -113,7 +138,6 @@ const SeatingGenerator: React.FC = () => {
     try {
       setLoading(true);
       const result = await getExamRoomsWithDetails();
-
       if (result.success && result.data) {
         setExamRooms(result.data);
         toast.success(`Loaded ${result.data.length} exam room assignments`);
@@ -128,41 +152,26 @@ const SeatingGenerator: React.FC = () => {
     }
   };
 
+  const getProgramCode = (displayName: string): string => {
+    const mapping: Record<string, string> = {
+      "Computer Science and Technology": "CST",
+      "Computer Science": "CS",
+      "Computer Technology": "CT",
+    };
+    return mapping[displayName] || displayName;
+  };
+
   /**
-   * Fetch students for both groups
+   * Fetch students for both groups.
+   * @param excludeIds - Student IDs already claimed by previously generated rooms (batch mode)
    */
   const fetchStudentsForGroups = async (
     examRoom: ExamRoomDetails,
+    excludeIds: Set<number> = new Set(),
   ): Promise<StudentData | null> => {
     try {
-      // Map program display names back to database values
-      const getProgramCode = (displayName: string): string => {
-        const mapping: Record<string, string> = {
-          "Computer Science and Technology": "CST",
-          "Computer Science": "CS",
-          "Computer Technology": "CT",
-        };
-        return mapping[displayName] || displayName;
-      };
-
       const primaryProgram = getProgramCode(examRoom.program_primary);
       const secondaryProgram = getProgramCode(examRoom.program_secondary);
-
-      console.log("Fetching students for:");
-      console.log("Primary:", {
-        year: parseInt(examRoom.year_level_primary),
-        sem: parseInt(examRoom.sem_primary),
-        program: primaryProgram,
-        specialization: examRoom.specialization_primary,
-        needed: examRoom.students_primary,
-      });
-      console.log("Secondary:", {
-        year: parseInt(examRoom.year_level_secondary),
-        sem: parseInt(examRoom.sem_secondary),
-        program: secondaryProgram,
-        specialization: examRoom.specialization_secondary,
-        needed: examRoom.students_secondary,
-      });
 
       const [primaryResult, secondaryResult] = await Promise.all([
         getUnassignedStudentsByGroup(
@@ -170,14 +179,15 @@ const SeatingGenerator: React.FC = () => {
           parseInt(examRoom.sem_primary),
           primaryProgram,
           examRoom.specialization_primary,
-          examRoom.students_primary,
+          // Fetch more than needed so we can filter out claimed ones
+          examRoom.students_primary + excludeIds.size,
         ),
         getUnassignedStudentsByGroup(
           parseInt(examRoom.year_level_secondary),
           parseInt(examRoom.sem_secondary),
           secondaryProgram,
           examRoom.specialization_secondary,
-          examRoom.students_secondary,
+          examRoom.students_secondary + excludeIds.size,
         ),
       ]);
 
@@ -186,21 +196,23 @@ const SeatingGenerator: React.FC = () => {
         return null;
       }
 
-      const primaryStudents = primaryResult.data || [];
-      const secondaryStudents = secondaryResult.data || [];
+      // ✅ Filter out students already claimed by earlier rooms in this batch
+      const primaryStudents = (primaryResult.data || [])
+        .filter((s) => !excludeIds.has(s.student_id))
+        .slice(0, examRoom.students_primary);
 
-      console.log(`Found ${primaryStudents.length} primary students`);
-      console.log(`Found ${secondaryStudents.length} secondary students`);
+      const secondaryStudents = (secondaryResult.data || [])
+        .filter((s) => !excludeIds.has(s.student_id))
+        .slice(0, examRoom.students_secondary);
 
-      // Check if we have enough students
       if (primaryStudents.length < examRoom.students_primary) {
         toast.warning(
-          `Only ${primaryStudents.length} unassigned primary students available (need ${examRoom.students_primary})`,
+          `Room ${examRoom.room.room_number}: Only ${primaryStudents.length} unassigned primary students available (need ${examRoom.students_primary})`,
         );
       }
       if (secondaryStudents.length < examRoom.students_secondary) {
         toast.warning(
-          `Only ${secondaryStudents.length} unassigned secondary students available (need ${examRoom.students_secondary})`,
+          `Room ${examRoom.room.room_number}: Only ${secondaryStudents.length} unassigned secondary students available (need ${examRoom.students_secondary})`,
         );
       }
 
@@ -222,9 +234,9 @@ const SeatingGenerator: React.FC = () => {
     secondaryStudentIds: Set<number>,
   ): SeatAssignment[] => {
     const seats: SeatAssignment[] = [];
-    const roomPrefix = examRoom.room.room_number.replace(/\s/g, "");
     const rows = examRoom.room.rows;
     const cols = examRoom.room.cols;
+    const roomPrefix = examRoom.room.room_number.replace(/\s/g, "");
 
     const assignmentMap = new Map<string, (typeof result.assignments)[0]>();
     result.assignments.forEach((assignment) => {
@@ -243,13 +255,9 @@ const SeatingGenerator: React.FC = () => {
 
         if (assignment) {
           const student = result.grid[rowIndex]?.[colIndex];
-
           if (student) {
             const isPrimary = primaryStudentIds.has(student.student_id);
-
-            // NEW: Determine group type
             const groupType: "A" | "B" = isPrimary ? "A" : "B";
-
             const groupLabel = isPrimary
               ? `Y${examRoom.year_level_primary}-S${examRoom.sem_primary}-${examRoom.program_primary}${examRoom.specialization_primary ? ` (${examRoom.specialization_primary})` : ""}`
               : `Y${examRoom.year_level_secondary}-S${examRoom.sem_secondary}-${examRoom.program_secondary}${examRoom.specialization_secondary ? ` (${examRoom.specialization_secondary})` : ""}`;
@@ -257,28 +265,27 @@ const SeatingGenerator: React.FC = () => {
             seats.push({
               seatNumber: assignment.seat_number,
               row: rowLabel,
-              column: column,
+              column,
               isOccupied: true,
               studentId: student.student_id,
               studentNumber: student.student_number,
               studentName: student.name,
               studentGroup: groupLabel,
-              groupType: groupType, // NEW: Add group type
+              groupType,
             });
           } else {
             seats.push({
               seatNumber: assignment.seat_number,
               row: rowLabel,
-              column: column,
+              column,
               isOccupied: false,
             });
           }
         } else {
-          const seatNumber = `${roomPrefix}-${rowIndex * cols + colIndex + 1}`;
           seats.push({
-            seatNumber,
+            seatNumber: `${roomPrefix}-${rowIndex * cols + colIndex + 1}`,
             row: rowLabel,
-            column: column,
+            column,
             isOccupied: false,
           });
         }
@@ -289,7 +296,7 @@ const SeatingGenerator: React.FC = () => {
   };
 
   /**
-   * Generate seating plan using the dynamic algorithm
+   * Run the seating algorithm for one exam room
    */
   const generateSeatingPlan = (
     examRoom: ExamRoomDetails,
@@ -297,15 +304,6 @@ const SeatingGenerator: React.FC = () => {
   ): SeatAssignment[] => {
     const { primaryStudents, secondaryStudents } = studentData;
 
-    console.log("Generating seating with:", {
-      primaryCount: primaryStudents.length,
-      secondaryCount: secondaryStudents.length,
-      cols: examRoom.room.cols,
-      rows: examRoom.room.rows,
-      capacity: examRoom.room.capacity,
-    });
-
-    // Use the dynamic seating algorithm
     const result: SeatingGrid = dynamicSeatingAssignment(
       primaryStudents,
       secondaryStudents,
@@ -314,34 +312,14 @@ const SeatingGenerator: React.FC = () => {
       examRoom.exam_room_id,
     );
 
-    console.log("Algorithm result:", {
-      gridRows: result.grid.length,
-      gridCols: result.grid[0]?.length,
-      assignmentsCount: result.assignments.length,
-      rowLabels: result.rowLabels,
-    });
-
-    console.log("First few assignments:", result.assignments.slice(0, 5));
-    console.log(
-      "Grid row 0:",
-      result.grid[0]?.map((s) => s?.student_number),
-    );
-
-    // Create ID sets for validation and conversion
     const groupAIds = new Set(primaryStudents.map((s) => s.student_id));
     const groupBIds = new Set(secondaryStudents.map((s) => s.student_id));
 
-    // Validate
     const validation = validateSeatingArrangement(result, groupAIds, groupBIds);
-
     if (!validation.valid) {
       console.error("Seating validation errors:", validation.errors);
-      toast.error("Seating arrangement has validation errors");
-    } else {
-      console.log("✅ Seating arrangement validated successfully");
     }
 
-    // Convert algorithm output to SeatAssignment format
     return convertAlgorithmResultToSeats(
       result,
       examRoom,
@@ -351,7 +329,7 @@ const SeatingGenerator: React.FC = () => {
   };
 
   /**
-   * Helper function to convert seating assignments to SeatAssignment format
+   * Convert DB seating assignments → SeatAssignment[] for display
    */
   const convertSeatingAssignmentsToSeats = (
     assignments: SeatingAssignmentWithStudent[],
@@ -364,19 +342,15 @@ const SeatingGenerator: React.FC = () => {
     const roomPrefix = roomNumber.replace(/\s/g, "");
 
     const assignmentMap = new Map<string, SeatingAssignmentWithStudent>();
-    assignments.forEach((assignment) => {
-      const key = `${assignment.row_label}-${assignment.column_number}`;
-      assignmentMap.set(key, assignment);
+    assignments.forEach((a) => {
+      assignmentMap.set(`${a.row_label}-${a.column_number}`, a);
     });
 
     for (let rowIndex = 0; rowIndex < rows; rowIndex++) {
       const rowLabel = rowLabels[rowIndex];
-
       for (let col = 1; col <= cols; col++) {
-        const mapKey = `${rowLabel}-${col}`;
-        const assignment = assignmentMap.get(mapKey);
-
-        if (assignment && assignment.student) {
+        const assignment = assignmentMap.get(`${rowLabel}-${col}`);
+        if (assignment?.student) {
           seats.push({
             seatNumber: assignment.seat_number,
             row: assignment.row_label,
@@ -386,13 +360,11 @@ const SeatingGenerator: React.FC = () => {
             studentNumber: assignment.student.student_number,
             studentName: assignment.student.name,
             studentGroup: `Y${assignment.student.year_level}-S${assignment.student.sem}-${assignment.student.major}${assignment.student.specialization ? ` (${assignment.student.specialization})` : ""}`,
-            groupType: assignment.student_group, // NEW: Add group type from database
+            groupType: assignment.student_group,
           });
         } else {
-          const seatIndex = rowIndex * cols + (col - 1) + 1;
-          const seatNumber = `${roomPrefix}-${seatIndex}`;
           seats.push({
-            seatNumber,
+            seatNumber: `${roomPrefix}-${rowIndex * cols + (col - 1) + 1}`,
             row: rowLabel,
             column: col,
             isOccupied: false,
@@ -400,31 +372,23 @@ const SeatingGenerator: React.FC = () => {
         }
       }
     }
-
     return seats;
   };
-  /**
-   * View existing seating plan
-   */
+
+  // ─── Single Room Handlers ──────────────────────────────────────────────────
+
   const handleViewSeatingPlan = async (examRoom: ExamRoomDetails) => {
     try {
       setViewingRoomId(examRoom.exam_room_id);
-
-      // Fetch existing seating assignments
       const result = await getSeatingAssignmentsByExamRoom(
         examRoom.exam_room_id,
       );
 
       if (!result.success || !result.data) {
         toast.error("Failed to load seating assignments");
-        setViewingRoomId(null);
         return;
       }
 
-      console.log("Fetched seating assignments:", result.data);
-      console.log("Number of assignments:", result.data.length);
-
-      // Convert seating assignments to SeatAssignment format
       const seats = convertSeatingAssignmentsToSeats(
         result.data,
         examRoom.room.rows,
@@ -432,65 +396,30 @@ const SeatingGenerator: React.FC = () => {
         examRoom.room.room_number,
       );
 
-      console.log("Converted seats:", seats);
-      console.log("Occupied seats:", seats.filter((s) => s.isOccupied).length);
-      console.log(
-        "Sample occupied seat:",
-        seats.find((s) => s.isOccupied),
-      );
-
-      // Extract students from assignments and separate them into groups
       const assignedStudents = result.data
         .filter((a) => a.student)
         .map((a) => a.student);
-
-      // Map program display names back to database values for comparison
-      const getProgramCode = (displayName: string): string => {
-        const mapping: Record<string, string> = {
-          "Computer Science and Technology": "CST",
-          "Computer Science": "CS",
-          "Computer Technology": "CT",
-        };
-        return mapping[displayName] || displayName;
-      };
-
       const primaryProgram = getProgramCode(examRoom.program_primary);
       const secondaryProgram = getProgramCode(examRoom.program_secondary);
 
-      // Separate students into primary and secondary groups based on their attributes
-      const primaryStudents = assignedStudents.filter((student) => {
-        return (
-          student.year_level === parseInt(examRoom.year_level_primary) &&
-          student.sem === parseInt(examRoom.sem_primary) &&
-          student.major === primaryProgram &&
-          (examRoom.specialization_primary
-            ? student.specialization === examRoom.specialization_primary
-            : true)
-        );
-      });
+      const primaryStudents = assignedStudents.filter(
+        (s) =>
+          s.year_level === parseInt(examRoom.year_level_primary) &&
+          s.sem === parseInt(examRoom.sem_primary) &&
+          s.major === primaryProgram &&
+          (!examRoom.specialization_primary ||
+            s.specialization === examRoom.specialization_primary),
+      );
+      const secondaryStudents = assignedStudents.filter(
+        (s) =>
+          s.year_level === parseInt(examRoom.year_level_secondary) &&
+          s.sem === parseInt(examRoom.sem_secondary) &&
+          s.major === secondaryProgram &&
+          (!examRoom.specialization_secondary ||
+            s.specialization === examRoom.specialization_secondary),
+      );
 
-      const secondaryStudents = assignedStudents.filter((student) => {
-        return (
-          student.year_level === parseInt(examRoom.year_level_secondary) &&
-          student.sem === parseInt(examRoom.sem_secondary) &&
-          student.major === secondaryProgram &&
-          (examRoom.specialization_secondary
-            ? student.specialization === examRoom.specialization_secondary
-            : true)
-        );
-      });
-
-      console.log("Separated students:", {
-        primary: primaryStudents.length,
-        secondary: secondaryStudents.length,
-        total: assignedStudents.length,
-      });
-
-      setStudentData({
-        primaryStudents,
-        secondaryStudents,
-      });
-
+      setStudentData({ primaryStudents, secondaryStudents });
       setSelectedExamRoom(examRoom);
       setGeneratedSeats(seats);
       setShowSeatingPlan(true);
@@ -503,27 +432,19 @@ const SeatingGenerator: React.FC = () => {
     }
   };
 
-  /**
-   * Regenerate seating plan (clear and generate new)
-   */
   const handleRegenerateSeatingPlan = async (examRoom: ExamRoomDetails) => {
-    const confirmed = window.confirm(
-      `This will delete the existing seating plan and generate a new one. Are you sure?`,
-    );
-
-    if (!confirmed) return;
+    if (
+      !window.confirm(
+        "This will delete the existing seating plan and generate a new one. Are you sure?",
+      )
+    )
+      return;
 
     try {
       setGeneratingRoomId(examRoom.exam_room_id);
-
-      // Clear existing assignments (trigger will set stu_assigned to false)
       await clearSeatingAssignments(examRoom.exam_room_id);
       toast.info("Cleared existing seating assignments");
-
-      // Reload exam rooms to get updated stu_assigned status
       await loadExamRooms();
-
-      // Then generate new seating plan
       await handleGenerateSeatingPlan(examRoom);
     } catch (error) {
       console.error("Error regenerating seating plan:", error);
@@ -533,58 +454,39 @@ const SeatingGenerator: React.FC = () => {
     }
   };
 
-  /**
-   * Handle generate seating plan - fetch students and show preview
-   */
   const handleGenerateSeatingPlan = async (examRoom: ExamRoomDetails) => {
     setGeneratingRoomId(examRoom.exam_room_id);
     try {
-      // Check if this exam room already has seating assignments
       const existingCheck = await checkExistingSeatingAssignments(
         examRoom.exam_room_id,
       );
-
       if (existingCheck.hasAssignments) {
-        const confirmed = window.confirm(
-          `This exam room already has ${existingCheck.count} seating assignments. Do you want to clear them and generate new seating?`,
-        );
-
-        if (!confirmed) {
-          setGeneratingRoomId(null);
+        if (
+          !window.confirm(
+            `This exam room already has ${existingCheck.count} seating assignments. Clear and regenerate?`,
+          )
+        ) {
           return;
         }
-
-        // Clear existing assignments
         await clearSeatingAssignments(examRoom.exam_room_id);
         toast.info("Cleared existing seating assignments");
       }
 
-      // Fetch students
       const students = await fetchStudentsForGroups(examRoom);
+      if (!students) return;
 
-      if (!students) {
-        setGeneratingRoomId(null);
-        return;
-      }
-
-      // Check if we have any students
       if (
         students.primaryStudents.length === 0 &&
         students.secondaryStudents.length === 0
       ) {
         toast.error("No unassigned students found for these groups");
-        setGeneratingRoomId(null);
         return;
       }
 
-      // Generate seating
       const seats = generateSeatingPlan(examRoom, students);
-
       setSelectedExamRoom(examRoom);
       setGeneratedSeats(seats);
       setStudentData(students);
-
-      // Show preview dialog
       setShowPreviewDialog(true);
     } catch (error) {
       console.error("Error generating seating plan:", error);
@@ -594,18 +496,12 @@ const SeatingGenerator: React.FC = () => {
     }
   };
 
-  /**
-   * Confirm preview and show seating plan
-   */
   const handleConfirmPreview = () => {
     setShowPreviewDialog(false);
     setShowSeatingPlan(true);
     toast.success("Seating plan generated successfully");
   };
 
-  /**
-   * Save seating plan to database
-   */
   const handleSaveSeatingPlan = async () => {
     if (!selectedExamRoom || generatedSeats.length === 0 || !studentData) {
       toast.error("No seating plan to save");
@@ -614,7 +510,6 @@ const SeatingGenerator: React.FC = () => {
 
     setIsSaving(true);
     try {
-      // Prepare assignments for database
       const assignments: SeatingAssignmentInput[] = generatedSeats
         .filter((seat) => seat.isOccupied && seat.studentId)
         .map((seat) => ({
@@ -623,13 +518,10 @@ const SeatingGenerator: React.FC = () => {
           seat_number: seat.seatNumber,
           row_label: seat.row,
           column_number: seat.column,
-          student_group: seat.groupType || "A", // NEW: Include student_group
+          student_group: seat.groupType || "A",
         }));
 
-      console.log(`Saving ${assignments.length} seating assignments...`);
-
       const result = await saveSeatingAssignments(assignments);
-
       if (result.success) {
         toast.success(
           `Successfully saved ${assignments.length} seating assignments!`,
@@ -637,7 +529,6 @@ const SeatingGenerator: React.FC = () => {
         await loadExamRooms();
       } else {
         toast.error("Failed to save seating assignments");
-        console.error("Save error:", result.error);
       }
     } catch (error) {
       console.error("Error saving seating plan:", error);
@@ -661,9 +552,6 @@ const SeatingGenerator: React.FC = () => {
     setStudentData(null);
   };
 
-  /**
-   * Export seating plan to CSV format
-   */
   const handleExportSeatingPlan = () => {
     if (!selectedExamRoom || generatedSeats.length === 0) {
       toast.error("No seating plan to export");
@@ -678,10 +566,9 @@ const SeatingGenerator: React.FC = () => {
         "Student Number",
         "Student Name",
         "Student Group",
-        "Group Type", // NEW: Add Group Type column
+        "Group Type",
         "Status",
       ];
-
       const rows = generatedSeats.map((seat) => [
         seat.seatNumber,
         seat.row,
@@ -689,7 +576,7 @@ const SeatingGenerator: React.FC = () => {
         seat.studentNumber || "N/A",
         seat.studentName || "N/A",
         seat.studentGroup || "N/A",
-        seat.groupType || "N/A", // NEW: Include group type in export
+        seat.groupType || "N/A",
         seat.isOccupied ? "Assigned" : "Vacant",
       ]);
 
@@ -708,19 +595,15 @@ const SeatingGenerator: React.FC = () => {
 
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
       const link = document.createElement("a");
-      const url = URL.createObjectURL(blob);
-
-      link.setAttribute("href", url);
+      link.setAttribute("href", URL.createObjectURL(blob));
       link.setAttribute(
         "download",
         `Seating_Plan_Room_${selectedExamRoom.room.room_number}_${new Date().toISOString().split("T")[0]}.csv`,
       );
       link.style.visibility = "hidden";
-
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-
       toast.success("Seating plan exported successfully");
     } catch (error) {
       console.error("Error exporting seating plan:", error);
@@ -728,10 +611,201 @@ const SeatingGenerator: React.FC = () => {
     }
   };
 
-  // Preview Dialog Component
+  // ─── Generate All Handler ──────────────────────────────────────────────────
+
+  const handleGenerateAllSeatingPlans = async () => {
+    const unassignedRooms = examRooms.filter((r) => !r.stu_assigned);
+
+    if (unassignedRooms.length === 0) {
+      toast.info("All rooms already have seating plans. Nothing to generate.");
+      return;
+    }
+
+    setIsGeneratingAll(true);
+    setGeneratedPlans([]);
+    // Reset the claimed IDs set for this batch run
+    claimedStudentIds.current = new Set();
+
+    setGenerateAllProgress({
+      current: 0,
+      total: unassignedRooms.length,
+      currentRoom: "",
+    });
+
+    const plans: GeneratedRoomPlan[] = [];
+
+    // ✅ Sequential loop — each room fetches from the SAME DB snapshot,
+    // but we use claimedStudentIds to prevent overlap between rooms
+    // since we're not saving between rooms in this flow.
+    for (let i = 0; i < unassignedRooms.length; i++) {
+      const examRoom = unassignedRooms[i];
+
+      setGenerateAllProgress({
+        current: i + 1,
+        total: unassignedRooms.length,
+        currentRoom: examRoom.room.room_number,
+      });
+
+      try {
+        // Pass the current claimed set so this room won't pick already-claimed students
+        const students = await fetchStudentsForGroups(
+          examRoom,
+          claimedStudentIds.current,
+        );
+
+        if (!students) {
+          plans.push({
+            examRoom,
+            seats: [],
+            studentData: { primaryStudents: [], secondaryStudents: [] },
+            assignments: [],
+            status: "error",
+            message: "Failed to fetch students",
+          });
+          continue;
+        }
+
+        if (
+          students.primaryStudents.length === 0 &&
+          students.secondaryStudents.length === 0
+        ) {
+          plans.push({
+            examRoom,
+            seats: [],
+            studentData: students,
+            assignments: [],
+            status: "skipped",
+            message: "No unassigned students available",
+          });
+          continue;
+        }
+
+        // Generate seating plan (no save yet)
+        const seats = generateSeatingPlan(examRoom, students);
+        const occupiedSeats = seats.filter((s) => s.isOccupied && s.studentId);
+
+        if (occupiedSeats.length === 0) {
+          plans.push({
+            examRoom,
+            seats,
+            studentData: students,
+            assignments: [],
+            status: "skipped",
+            message: "Algorithm produced no seat assignments",
+          });
+          continue;
+        }
+
+        // Build assignments array for later save
+        const assignments: SeatingAssignmentInput[] = occupiedSeats.map(
+          (seat) => ({
+            exam_room_id: examRoom.exam_room_id,
+            student_id: seat.studentId!,
+            seat_number: seat.seatNumber,
+            row_label: seat.row,
+            column_number: seat.column,
+            student_group: seat.groupType || "A",
+          }),
+        );
+
+        // ✅ Mark all assigned students as claimed so subsequent rooms skip them
+        occupiedSeats.forEach((seat) => {
+          if (seat.studentId) claimedStudentIds.current.add(seat.studentId);
+        });
+
+        plans.push({
+          examRoom,
+          seats,
+          studentData: students,
+          assignments,
+          status: "ready",
+          message: `${assignments.length} students ready to assign`,
+        });
+      } catch (error) {
+        console.error(
+          `Error processing room ${examRoom.room.room_number}:`,
+          error,
+        );
+        plans.push({
+          examRoom,
+          seats: [],
+          studentData: { primaryStudents: [], secondaryStudents: [] },
+          assignments: [],
+          status: "error",
+          message: "Unexpected error during generation",
+        });
+      }
+    }
+
+    setGeneratedPlans(plans);
+    setIsGeneratingAll(false);
+    setGenerateAllProgress(null);
+    // Show the combined summary dialog for user to review before saving
+    setShowGenerateAllSummary(true);
+  };
+
+  /**
+   * User confirmed the summary — save all ready plans
+   */
+  const handleConfirmSaveAll = async () => {
+    const readyPlans = generatedPlans.filter((p) => p.status === "ready");
+    if (readyPlans.length === 0) {
+      toast.info("No plans to save");
+      setShowGenerateAllSummary(false);
+      return;
+    }
+
+    setIsSavingAll(true);
+    let savedCount = 0;
+    let failedCount = 0;
+
+    for (const plan of readyPlans) {
+      try {
+        const result = await saveSeatingAssignments(plan.assignments);
+        if (result.success) {
+          savedCount++;
+        } else {
+          failedCount++;
+          console.error(
+            `Failed to save room ${plan.examRoom.room.room_number}:`,
+            result.error,
+          );
+        }
+      } catch (error) {
+        failedCount++;
+        console.error(
+          `Exception saving room ${plan.examRoom.room.room_number}:`,
+          error,
+        );
+      }
+    }
+
+    setIsSavingAll(false);
+    setShowGenerateAllSummary(false);
+    setGeneratedPlans([]);
+    claimedStudentIds.current = new Set();
+
+    if (failedCount === 0) {
+      toast.success(`All ${savedCount} room(s) saved successfully!`);
+    } else {
+      toast.warning(
+        `${savedCount} saved, ${failedCount} failed. Check console for details.`,
+      );
+    }
+
+    await loadExamRooms();
+  };
+
+  const handleCancelSaveAll = () => {
+    setShowGenerateAllSummary(false);
+    setGeneratedPlans([]);
+    claimedStudentIds.current = new Set();
+  };
+
+  // ─── Dialogs ───────────────────────────────────────────────────────────────
+
   const PreviewDialog = () => {
     if (!selectedExamRoom || !studentData) return null;
-
     const occupiedSeats = generatedSeats.filter((s) => s.isOccupied).length;
     const primaryAssigned = studentData.primaryStudents.length;
     const secondaryAssigned = studentData.secondaryStudents.length;
@@ -745,9 +819,7 @@ const SeatingGenerator: React.FC = () => {
               Review the seating arrangement before saving to the database
             </DialogDescription>
           </DialogHeader>
-
           <div className="space-y-4 py-4">
-            {/* Room Info */}
             <Card className="p-4">
               <h3 className="font-semibold mb-2">Room Information</h3>
               <div className="grid grid-cols-2 gap-2 text-sm">
@@ -775,8 +847,6 @@ const SeatingGenerator: React.FC = () => {
                 </div>
               </div>
             </Card>
-
-            {/* Student Groups */}
             <Card className="p-4">
               <h3 className="font-semibold mb-3">Student Groups</h3>
               <div className="space-y-3">
@@ -791,7 +861,6 @@ const SeatingGenerator: React.FC = () => {
                     )}
                   </div>
                 </div>
-
                 <div className="p-2 bg-green-50 rounded">
                   <div className="text-sm font-medium">Secondary Group</div>
                   <div className="text-xs text-muted-foreground">
@@ -805,22 +874,16 @@ const SeatingGenerator: React.FC = () => {
                 </div>
               </div>
             </Card>
-
-            {/* Warnings */}
             {(primaryAssigned < selectedExamRoom.students_primary ||
               secondaryAssigned < selectedExamRoom.students_secondary) && (
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Insufficient Students</AlertTitle>
                 <AlertDescription>
-                  Some student groups have fewer unassigned students than
-                  required. The seating plan will be generated with available
-                  students only.
+                  Some groups have fewer unassigned students than required.
                 </AlertDescription>
               </Alert>
             )}
-
-            {/* Success indicator */}
             {primaryAssigned > 0 && secondaryAssigned > 0 && (
               <Alert className="border-green-200 bg-green-50">
                 <CheckCircle2 className="h-4 w-4 text-green-600" />
@@ -834,7 +897,6 @@ const SeatingGenerator: React.FC = () => {
               </Alert>
             )}
           </div>
-
           <DialogFooter className="flex gap-2">
             <Button variant="outline" onClick={handleCancelPreview}>
               Cancel
@@ -849,10 +911,205 @@ const SeatingGenerator: React.FC = () => {
     );
   };
 
-  // If showing seating plan, render the plan view
+  // ✅ NEW: Generate All — progress dialog (shown while generating, closes automatically)
+  const GenerateAllProgressDialog = () => (
+    <Dialog open={isGeneratingAll}>
+      <DialogContent
+        className="sm:max-w-md"
+        onInteractOutside={(e) => e.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogTitle>Generating Seating Plans…</DialogTitle>
+          <DialogDescription>
+            Processing rooms one at a time. Please wait.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          {generateAllProgress && (
+            <>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">
+                  Room:{" "}
+                  <span className="font-medium text-foreground">
+                    {generateAllProgress.currentRoom}
+                  </span>
+                </span>
+                <span className="font-medium">
+                  {generateAllProgress.current} / {generateAllProgress.total}
+                </span>
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all duration-300"
+                  style={{
+                    width: `${(generateAllProgress.current / generateAllProgress.total) * 100}%`,
+                  }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground text-center">
+                Do not close this window
+              </p>
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
+  // ✅ NEW: Combined summary dialog — shown after generation, before saving
+  const GenerateAllSummaryDialog = () => {
+    const readyPlans = generatedPlans.filter((p) => p.status === "ready");
+    const skippedPlans = generatedPlans.filter((p) => p.status === "skipped");
+    const errorPlans = generatedPlans.filter((p) => p.status === "error");
+    const totalStudents = readyPlans.reduce(
+      (sum, p) => sum + p.assignments.length,
+      0,
+    );
+
+    return (
+      <Dialog
+        open={showGenerateAllSummary}
+        onOpenChange={(open) => {
+          if (!isSavingAll) setShowGenerateAllSummary(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Generation Summary</DialogTitle>
+            <DialogDescription>
+              Review all generated seating plans before saving them to the
+              database.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Totals bar */}
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                <p className="text-2xl font-bold text-green-700">
+                  {readyPlans.length}
+                </p>
+                <p className="text-xs text-green-600 mt-1">Ready to Save</p>
+                <p className="text-xs text-muted-foreground">
+                  {totalStudents} students
+                </p>
+              </div>
+              <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                <p className="text-2xl font-bold text-yellow-700">
+                  {skippedPlans.length}
+                </p>
+                <p className="text-xs text-yellow-600 mt-1">Skipped</p>
+              </div>
+              <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+                <p className="text-2xl font-bold text-red-700">
+                  {errorPlans.length}
+                </p>
+                <p className="text-xs text-red-600 mt-1">Errors</p>
+              </div>
+            </div>
+
+            {/* Per-room breakdown */}
+            <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+              {generatedPlans.map((plan, i) => (
+                <div
+                  key={i}
+                  className={`flex items-center justify-between p-3 rounded-lg border text-sm ${
+                    plan.status === "ready"
+                      ? "bg-green-50 border-green-200"
+                      : plan.status === "skipped"
+                        ? "bg-yellow-50 border-yellow-200"
+                        : "bg-red-50 border-red-200"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    {plan.status === "ready" && (
+                      <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                    )}
+                    {plan.status === "skipped" && (
+                      <AlertCircle className="h-4 w-4 text-yellow-600 shrink-0" />
+                    )}
+                    {plan.status === "error" && (
+                      <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+                    )}
+                    <div>
+                      <p className="font-medium">
+                        Room {plan.examRoom.room.room_number}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Y{plan.examRoom.year_level_primary}{" "}
+                        {plan.examRoom.program_primary}
+                        {plan.examRoom.specialization_primary
+                          ? ` • ${plan.examRoom.specialization_primary}`
+                          : ""}
+                        {" + "}Y{plan.examRoom.year_level_secondary}{" "}
+                        {plan.examRoom.program_secondary}
+                        {plan.examRoom.specialization_secondary
+                          ? ` • ${plan.examRoom.specialization_secondary}`
+                          : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    className={`text-xs font-medium ${
+                      plan.status === "ready"
+                        ? "text-green-700"
+                        : plan.status === "skipped"
+                          ? "text-yellow-700"
+                          : "text-red-700"
+                    }`}
+                  >
+                    {plan.message}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {readyPlans.length > 0 && (
+              <Alert className="border-blue-200 bg-blue-50">
+                <AlertCircle className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-blue-700 text-sm">
+                  Clicking <strong>Save All</strong> will commit {totalStudents}{" "}
+                  student seat assignments across {readyPlans.length} room(s) to
+                  the database. This cannot be undone without regenerating.
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+
+          <DialogFooter className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={handleCancelSaveAll}
+              disabled={isSavingAll}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmSaveAll}
+              disabled={isSavingAll || readyPlans.length === 0}
+            >
+              {isSavingAll ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Save All ({readyPlans.length} rooms)
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  };
+
+  // ─── Seating Plan View ─────────────────────────────────────────────────────
+
   if (showSeatingPlan && selectedExamRoom) {
     const occupiedSeats = generatedSeats.filter((s) => s.isOccupied).length;
-
     return (
       <DashboardLayout>
         <PageHeader
@@ -888,9 +1145,7 @@ const SeatingGenerator: React.FC = () => {
             </div>
           }
         />
-
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Info Panel */}
           <div className="lg:col-span-1 space-y-4">
             <Card className="p-4">
               <h3 className="font-semibold mb-3">Room Details</h3>
@@ -921,15 +1176,12 @@ const SeatingGenerator: React.FC = () => {
                 </div>
               </div>
             </Card>
-
             <Card className="p-4">
               <h3 className="font-semibold mb-3">Student Groups</h3>
               <div className="space-y-3 text-sm">
                 <div>
-                  <div className="mb-1">
-                    <span className="text-muted-foreground">Primary</span>
-                  </div>
-                  <p className="text-xs">
+                  <span className="text-muted-foreground">Primary</span>
+                  <p className="text-xs mt-1">
                     Y{selectedExamRoom.year_level_primary}-S
                     {selectedExamRoom.sem_primary}-
                     {selectedExamRoom.program_primary}
@@ -942,10 +1194,8 @@ const SeatingGenerator: React.FC = () => {
                   </p>
                 </div>
                 <div>
-                  <div className="mb-1">
-                    <span className="text-muted-foreground">Secondary</span>
-                  </div>
-                  <p className="text-xs">
+                  <span className="text-muted-foreground">Secondary</span>
+                  <p className="text-xs mt-1">
                     Y{selectedExamRoom.year_level_secondary}-S
                     {selectedExamRoom.sem_secondary}-
                     {selectedExamRoom.program_secondary}
@@ -959,21 +1209,17 @@ const SeatingGenerator: React.FC = () => {
                 </div>
               </div>
             </Card>
-
             <Card className="p-4">
               <h3 className="font-semibold mb-3">Pattern Info</h3>
               <p className="text-sm text-muted-foreground">
                 <span className="font-medium text-foreground">
                   Zig-Zag Pattern:
                 </span>{" "}
-                Students are arranged with primary and secondary groups
-                alternating in a checkerboard pattern, distributed evenly across
-                the room using band-based selection.
+                Students are arranged alternating in a checkerboard pattern
+                across the room.
               </p>
             </Card>
           </div>
-
-          {/* Seating Plan Grid */}
           <div className="lg:col-span-3">
             <Card className="p-6">
               <SeatingPlanGrid
@@ -993,24 +1239,53 @@ const SeatingGenerator: React.FC = () => {
     );
   }
 
-  // Default view: Room list
+  // ─── Room List View ────────────────────────────────────────────────────────
+
+  const unassignedCount = examRooms.filter((r) => !r.stu_assigned).length;
+
   return (
     <DashboardLayout>
       <PageHeader
         title="Seating Plan Generator"
         description="Select an exam room to generate seating arrangements"
         actions={
-          <Button variant="outline" onClick={loadExamRooms} disabled={loading}>
-            <RefreshCw
-              className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`}
-            />
-            Refresh
-          </Button>
+          <div className="flex gap-2">
+            {/* ✅ NEW: Generate All button */}
+            <Button
+              variant="default"
+              onClick={handleGenerateAllSeatingPlans}
+              disabled={isGeneratingAll || loading || unassignedCount === 0}
+            >
+              {isGeneratingAll ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Generating…
+                </>
+              ) : (
+                <>
+                  <PlayCircle className="h-4 w-4 mr-2" />
+                  Generate All ({unassignedCount} rooms)
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={loadExamRooms}
+              disabled={loading}
+            >
+              <RefreshCw
+                className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </Button>
+          </div>
         }
       />
 
-      {/* Preview Dialog */}
+      {/* All dialogs */}
       <PreviewDialog />
+      <GenerateAllProgressDialog />
+      <GenerateAllSummaryDialog />
 
       {loading ? (
         <Card className="p-12 text-center">
@@ -1029,21 +1304,15 @@ const SeatingGenerator: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {examRooms.map((examRoom) => {
-            const parseRoomNumber = (roomNumber: string) => {
-              if (!roomNumber || roomNumber.length < 3) {
-                return {
-                  building: "N/A",
-                  floor: "N/A",
-                  room: roomNumber || "N/A",
-                };
-              }
+            const parseRoomNumber = (rn: string) => {
+              if (!rn || rn.length < 3)
+                return { building: "N/A", floor: "N/A", room: rn || "N/A" };
               return {
-                building: roomNumber.charAt(0),
-                floor: roomNumber.charAt(1),
-                room: roomNumber.substring(2),
+                building: rn.charAt(0),
+                floor: rn.charAt(1),
+                room: rn.substring(2),
               };
             };
-
             const roomInfo = parseRoomNumber(examRoom.room?.room_number || "");
 
             return (
@@ -1051,7 +1320,6 @@ const SeatingGenerator: React.FC = () => {
                 key={examRoom.exam_room_id}
                 className="p-6 hover:shadow-lg transition-shadow"
               >
-                {/* Room Header */}
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
@@ -1089,7 +1357,6 @@ const SeatingGenerator: React.FC = () => {
                   <Badge variant="outline">ID: {examRoom.exam_room_id}</Badge>
                 </div>
 
-                {/* Room Capacity */}
                 <div className="mb-4 p-3 bg-muted/50 rounded-lg">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm text-muted-foreground">
@@ -1107,7 +1374,6 @@ const SeatingGenerator: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Student Groups */}
                 <div className="border-t pt-4 space-y-3">
                   <div>
                     <div className="flex items-center justify-between mb-1">
@@ -1129,7 +1395,6 @@ const SeatingGenerator: React.FC = () => {
                       )}
                     </p>
                   </div>
-
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs text-muted-foreground">
@@ -1152,7 +1417,6 @@ const SeatingGenerator: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Total Students & Progress */}
                 <div className="border-t mt-4 pt-4">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center text-sm text-muted-foreground">
@@ -1181,65 +1445,66 @@ const SeatingGenerator: React.FC = () => {
                   </p>
                 </div>
 
-                {/* Action Buttons */}
-                {examRoom.stu_assigned ? (
-                  <div className="space-y-2 mt-4">
+                <div className="mt-4">
+                  {examRoom.stu_assigned ? (
+                    <div className="space-y-2">
+                      <Button
+                        className="w-full"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleViewSeatingPlan(examRoom)}
+                        disabled={viewingRoomId === examRoom.exam_room_id}
+                      >
+                        {viewingRoomId === examRoom.exam_room_id ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Loading...
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="h-4 w-4 mr-2" />
+                            View Seating Plan
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        className="w-full"
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => handleRegenerateSeatingPlan(examRoom)}
+                        disabled={generatingRoomId === examRoom.exam_room_id}
+                      >
+                        {generatingRoomId === examRoom.exam_room_id ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Regenerating...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Regenerate Seating
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  ) : (
                     <Button
                       className="w-full"
                       size="sm"
-                      variant="outline"
-                      onClick={() => handleViewSeatingPlan(examRoom)}
-                      disabled={viewingRoomId === examRoom.exam_room_id}
-                    >
-                      {viewingRoomId === examRoom.exam_room_id ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Loading...
-                        </>
-                      ) : (
-                        <>
-                          <Eye className="h-4 w-4 mr-2" />
-                          View Seating Plan
-                        </>
-                      )}
-                    </Button>
-                    <Button
-                      className="w-full"
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => handleRegenerateSeatingPlan(examRoom)}
+                      onClick={() => handleGenerateSeatingPlan(examRoom)}
                       disabled={generatingRoomId === examRoom.exam_room_id}
                     >
                       {generatingRoomId === examRoom.exam_room_id ? (
                         <>
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Regenerating...
+                          Generating...
                         </>
                       ) : (
-                        <>
-                          <RefreshCw className="h-4 w-4 mr-2" />
-                          Regenerate Seating
-                        </>
+                        "Generate Seating Plan"
                       )}
                     </Button>
-                  </div>
-                ) : (
-                  <Button
-                    className="w-full mt-4"
-                    size="sm"
-                    onClick={() => handleGenerateSeatingPlan(examRoom)}
-                    disabled={generatingRoomId === examRoom.exam_room_id}
-                  >
-                    {generatingRoomId === examRoom.exam_room_id ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      "Generate Seating Plan"
-                    )}
-                  </Button>
-                )}
+                  )}
+                </div>
               </Card>
             );
           })}
