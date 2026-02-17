@@ -7,7 +7,6 @@ import {
   Users,
   CheckCircle2,
   Search,
-  UserPlus,
   Loader2,
   UserCheck,
   AlertCircle,
@@ -27,19 +26,21 @@ interface AssignTeachersModalProps {
   examDate: string;
   examSession: ExamSession;
   examTime?: { start: string; end: string };
+  roomCardData?: any;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-// Helper Component for List Selection
 const TeacherSelector = ({
   teachers,
   selectedId,
+  disabledId,
   onSelect,
   roleLabel,
 }: {
   teachers: TeacherWithAvailability[];
   selectedId: number | null;
+  disabledId: number | null; // teacher selected in the OTHER role
   onSelect: (teacherId: number) => void;
   roleLabel: string;
 }) => {
@@ -53,7 +54,6 @@ const TeacherSelector = ({
 
   return (
     <div className="flex flex-col h-[350px] border rounded-md bg-white">
-      {/* Search Header */}
       <div className="p-3 border-b bg-gray-50/50">
         <div className="relative">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -66,7 +66,6 @@ const TeacherSelector = ({
         </div>
       </div>
 
-      {/* Scrollable List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {filteredTeachers.length === 0 ? (
           <div className="text-center py-8 text-sm text-muted-foreground">
@@ -75,21 +74,28 @@ const TeacherSelector = ({
         ) : (
           filteredTeachers.map((teacher) => {
             const isSelected = selectedId === teacher.teacher_id;
+            const isAssignedOtherRole = disabledId === teacher.teacher_id;
+            const isBusy = !teacher.availability.is_available;
+            const isDisabled = isBusy || isAssignedOtherRole;
+
+            let conflictLabel: string | null = null;
+            if (isAssignedOtherRole) {
+              conflictLabel =
+                roleLabel === "Supervisor"
+                  ? "Selected as Assistant"
+                  : "Selected as Supervisor";
+            } else if (isBusy) {
+              conflictLabel = "Already assigned today";
+            }
 
             return (
               <div
                 key={teacher.teacher_id}
-                onClick={() =>
-                  teacher.availability.is_available &&
-                  onSelect(teacher.teacher_id)
-                }
-                className={`group flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all 
-                  ${
-                    isSelected
-                      ? "bg-primary/5 border-primary ring-1 ring-primary/20"
-                      : "hover:bg-accent hover:border-primary/30"
-                  }
-                  ${!teacher.availability.is_available ? "opacity-60 cursor-not-allowed bg-gray-50" : ""}
+                onClick={() => !isDisabled && onSelect(teacher.teacher_id)}
+                className={`group flex items-center justify-between p-3 border rounded-lg transition-all
+                  ${isSelected ? "bg-primary/5 border-primary ring-1 ring-primary/20" : ""}
+                  ${!isSelected && !isDisabled ? "cursor-pointer hover:bg-accent hover:border-primary/30" : ""}
+                  ${isDisabled ? "opacity-50 cursor-not-allowed bg-gray-50" : ""}
                 `}
               >
                 <div className="flex-1 min-w-0 mr-3">
@@ -105,32 +111,34 @@ const TeacherSelector = ({
                     {teacher.rank} • {teacher.department}
                   </p>
 
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <Badge
                       variant="secondary"
                       className="text-[10px] h-5 px-1.5 font-normal bg-gray-100 text-gray-600 border-gray-200"
                     >
                       {teacher.total_periods_assigned || 0} exams
                     </Badge>
+                    {conflictLabel && (
+                      <Badge
+                        variant="secondary"
+                        className="text-[10px] h-5 px-1.5 font-normal bg-orange-100 text-orange-700 border-orange-200"
+                      >
+                        {conflictLabel}
+                      </Badge>
+                    )}
                   </div>
                 </div>
 
-                {/* Selection Indicator */}
                 <div
-                  className={`
-                  h-8 w-8 rounded-full flex items-center justify-center transition-all
-                  ${
-                    isSelected
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "bg-transparent text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"
-                  }
+                  className={`h-8 w-8 rounded-full flex items-center justify-center transition-all
+                  ${isSelected ? "bg-primary text-primary-foreground shadow-sm" : "bg-transparent text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"}
                 `}
                 >
                   {isSelected ? (
                     <CheckCircle2 className="h-5 w-5" />
                   ) : (
                     <div
-                      className={`h-4 w-4 rounded-full border-2 ${teacher.availability.is_available ? "border-current" : "border-gray-300"}`}
+                      className={`h-4 w-4 rounded-full border-2 ${!isDisabled ? "border-current" : "border-gray-300"}`}
                     />
                   )}
                 </div>
@@ -157,7 +165,6 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
   const [assistants, setAssistants] = useState<TeacherWithAvailability[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ✅ Local Selection State (Pending Assignments)
   const [selectedSupervisorId, setSelectedSupervisorId] = useState<
     number | null
   >(null);
@@ -216,7 +223,6 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
 
       setSupervisors(availableSupervisors);
       setAssistants(availableAssistants);
-      // Reset local selections on data reload
       setSelectedSupervisorId(null);
       setSelectedAssistantId(null);
     } catch (err: any) {
@@ -227,25 +233,48 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
     }
   };
 
-  // ✅ Fixed Batch Save Function
+  // When selecting a supervisor, clear assistant if it's the same teacher
+  const handleSelectSupervisor = (teacherId: number) => {
+    setSelectedSupervisorId(teacherId);
+    if (selectedAssistantId === teacherId) {
+      setSelectedAssistantId(null);
+    }
+  };
+
+  // When selecting an assistant, clear supervisor if it's the same teacher
+  const handleSelectAssistant = (teacherId: number) => {
+    setSelectedAssistantId(teacherId);
+    if (selectedSupervisorId === teacherId) {
+      setSelectedSupervisorId(null);
+    }
+  };
+
   const handleSaveChanges = async () => {
     if (!selectedSupervisorId && !selectedAssistantId) return;
+
+    // Final guard: same teacher in both roles
+    if (
+      selectedSupervisorId &&
+      selectedAssistantId &&
+      selectedSupervisorId === selectedAssistantId
+    ) {
+      setError(
+        "The same teacher cannot be assigned as both Supervisor and Assistant.",
+      );
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
     setSuccessMessage(null);
 
-    const promises = [];
-
     try {
-      // Delete existing assignments first to avoid unique constraint violation
       if (selectedSupervisorId) {
         await teacherAssignmentQueries.deleteByRoomAndRole(
           activeExamRoomId,
           "Supervisor",
         );
       }
-
       if (selectedAssistantId) {
         await teacherAssignmentQueries.deleteByRoomAndRole(
           activeExamRoomId,
@@ -253,7 +282,6 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
         );
       }
 
-      // Now create the new assignments
       const promises = [];
 
       if (selectedSupervisorId) {
@@ -315,7 +343,6 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
     }
   };
 
-  // Helper to check if we have unsaved changes
   const hasUnsavedChanges =
     selectedSupervisorId !== null || selectedAssistantId !== null;
 
@@ -375,7 +402,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* --- SUPERVISOR SECTION --- */}
+            {/* SUPERVISOR SECTION */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -385,9 +412,6 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                       <CheckCircle2 className="h-4 w-4 text-green-500" />
                     )}
                   </h3>
-                  <p className="text-xs text-muted-foreground">
-                    Professors & Associate Professors
-                  </p>
                 </div>
                 {status?.hasSupervisor && (
                   <Button
@@ -406,7 +430,8 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                   teachers={supervisors}
                   roleLabel="Supervisor"
                   selectedId={selectedSupervisorId}
-                  onSelect={setSelectedSupervisorId}
+                  disabledId={selectedAssistantId}
+                  onSelect={handleSelectSupervisor}
                 />
               ) : (
                 <div className="p-4 rounded-lg bg-green-50 border border-green-100 flex items-start gap-3">
@@ -425,7 +450,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
               )}
             </div>
 
-            {/* --- ASSISTANT SECTION --- */}
+            {/* ASSISTANT SECTION */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -435,9 +460,6 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                       <CheckCircle2 className="h-4 w-4 text-green-500" />
                     )}
                   </h3>
-                  <p className="text-xs text-muted-foreground">
-                    Lecturers & Instructors
-                  </p>
                 </div>
                 {status?.hasAssistant && (
                   <Button
@@ -456,7 +478,8 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                   teachers={assistants}
                   roleLabel="Assistant"
                   selectedId={selectedAssistantId}
-                  onSelect={setSelectedAssistantId}
+                  disabledId={selectedSupervisorId}
+                  onSelect={handleSelectAssistant}
                 />
               ) : (
                 <div className="p-4 rounded-lg bg-green-50 border border-green-100 flex items-start gap-3">
@@ -477,7 +500,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
           </div>
         </div>
 
-        {/* Footer with Save Button */}
+        {/* Footer */}
         <div className="p-6 border-t bg-gray-50 flex justify-end gap-3 rounded-b-lg">
           <Button variant="outline" onClick={onClose}>
             Cancel
