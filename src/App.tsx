@@ -30,19 +30,6 @@ import RoomRangesPage from "./pages/exam-officer/RoomRangesPage";
 import InsertDataPage from "./pages/exam-officer/InsertDataPage";
 import TeacherAssignmentsTable from "./pages/exam-officer/TeacherAssignmentsTable";
 
-// Invigilator Pages
-import InvigilatorDashboard from "./pages/invigilator/InvigilatorDashboard";
-import AssignedExams from "./pages/invigilator/AssignedExams";
-import AssignedRooms from "./pages/invigilator/AssignedRooms";
-import InvigilatorSeating from "./pages/invigilator/InvigilatorSeating";
-import InvigilatorSchedule from "./pages/invigilator/InvigilatorSchedule";
-
-// Student Pages
-import StudentDashboard from "./pages/student/StudentDashboard";
-import StudentTimetable from "./pages/student/StudentTimetable";
-import StudentSeat from "./pages/student/StudentSeat";
-import StudentExams from "./pages/student/StudentExams";
-
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -213,89 +200,6 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
-
-            {/* ── Dev-only: Invigilator & Student routes ──
-                import.meta.env.DEV is true during `vite dev`,
-                replaced with `false` at build time so these routes
-                are completely tree-shaken out of the production bundle. ── */}
-            {isDev && (
-              <>
-                <Route
-                  path="/invigilator"
-                  element={
-                    <ProtectedRoute allowedRoles={["invigilator"]}>
-                      <InvigilatorDashboard />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/invigilator/exams"
-                  element={
-                    <ProtectedRoute allowedRoles={["invigilator"]}>
-                      <AssignedExams />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/invigilator/rooms"
-                  element={
-                    <ProtectedRoute allowedRoles={["invigilator"]}>
-                      <AssignedRooms />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/invigilator/seating"
-                  element={
-                    <ProtectedRoute allowedRoles={["invigilator"]}>
-                      <InvigilatorSeating />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/invigilator/schedule"
-                  element={
-                    <ProtectedRoute allowedRoles={["invigilator"]}>
-                      <InvigilatorSchedule />
-                    </ProtectedRoute>
-                  }
-                />
-
-                <Route
-                  path="/student"
-                  element={
-                    <ProtectedRoute allowedRoles={["student"]}>
-                      <StudentDashboard />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/student/timetable"
-                  element={
-                    <ProtectedRoute allowedRoles={["student"]}>
-                      <StudentTimetable />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/student/seat"
-                  element={
-                    <ProtectedRoute allowedRoles={["student"]}>
-                      <StudentSeat />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/student/exams"
-                  element={
-                    <ProtectedRoute allowedRoles={["student"]}>
-                      <StudentExams />
-                    </ProtectedRoute>
-                  }
-                />
-              </>
-            )}
-
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

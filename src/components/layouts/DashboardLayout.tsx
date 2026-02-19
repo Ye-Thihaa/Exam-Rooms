@@ -1,13 +1,9 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard,
   Users,
-  BookOpen,
-  DoorOpen,
-  ClipboardList,
-  Calendar,
   User,
   LogOut,
   Menu,
@@ -32,7 +28,7 @@ import {
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Static data — defined at module scope so identity never changes between renders
+// Static data
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface NavItem {
@@ -105,44 +101,30 @@ const roleNavItems: Record<string, NavItem[]> = {
       danger: true,
     },
   ],
-  invigilator: [
-    { icon: LayoutDashboard, label: "Dashboard", path: "/invigilator" },
-    { icon: BookOpen, label: "Assigned Exams", path: "/invigilator/exams" },
-    { icon: DoorOpen, label: "Assigned Rooms", path: "/invigilator/rooms" },
-    {
-      icon: ClipboardList,
-      label: "Seating Plans",
-      path: "/invigilator/seating",
-    },
-    { icon: Calendar, label: "Schedule", path: "/invigilator/schedule" },
-  ],
-  student: [
-    { icon: LayoutDashboard, label: "Dashboard", path: "/student" },
-    { icon: Calendar, label: "Exam Timetable", path: "/student/timetable" },
-    { icon: DoorOpen, label: "My Seat Info", path: "/student/seat" },
-    { icon: BookOpen, label: "Exam Details", path: "/student/exams" },
-  ],
 };
 
 const roleLabels: Record<string, string> = {
-  admin: "Administrator",
   exam_officer: "Exam Officer",
-  invigilator: "Invigilator",
-  student: "Student",
 };
 
-const navSections: Record<string, { title: string; items: string[] }[]> = {
+const navSections: Record<
+  string,
+  { title: string; icon: React.ElementType; items: string[] }[]
+> = {
   exam_officer: [
     {
       title: "Overview",
+      icon: LayoutDashboard,
       items: ["/exam-officer", "/exam-officer/user-manual"],
     },
     {
-      title: "Students & Data",
+      title: "Students",
+      icon: UserSquare2,
       items: ["/exam-officer/students", "/exam-officer/insert-data"],
     },
     {
       title: "Rooms & Exams",
+      icon: Building2,
       items: [
         "/exam-officer/rooms",
         "/exam-officer/exams",
@@ -155,6 +137,7 @@ const navSections: Record<string, { title: string; items: string[] }[]> = {
     },
     {
       title: "Teachers",
+      icon: Users,
       items: [
         "/exam-officer/teacher-view",
         "/exam-officer/assign-teachers",
@@ -165,9 +148,13 @@ const navSections: Record<string, { title: string; items: string[] }[]> = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SidebarNav — MUST be a top-level (module-scope) component, NOT defined inside
-// DashboardLayout. If defined inside, React treats it as a new component type
-// on every parent render and fully unmounts + remounts it, resetting scrollTop.
+// Module-level scroll position
+// ─────────────────────────────────────────────────────────────────────────────
+
+let savedNavScroll = 0;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SidebarNav
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface SidebarNavProps {
@@ -178,32 +165,35 @@ interface SidebarNavProps {
 const SidebarNav: React.FC<SidebarNavProps> = ({ role, onNavigate }) => {
   const { pathname } = useLocation();
   const navRef = useRef<HTMLElement>(null);
-  const savedScroll = useRef(0);
 
-  // Persist scroll position on every scroll
+  // Track which sections are open — default all open
+  const sections = navSections[role] || [];
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(sections.map((s) => [s.title, true])),
+  );
+
   useEffect(() => {
     const el = navRef.current;
     if (!el) return;
     const save = () => {
-      savedScroll.current = el.scrollTop;
+      savedNavScroll = el.scrollTop;
     };
     el.addEventListener("scroll", save, { passive: true });
     return () => el.removeEventListener("scroll", save);
   }, []);
 
-  // Restore after every render (route changes cause a render)
-  // No dep array — runs after every render so it always fires before paint
-  useEffect(() => {
-    if (navRef.current) {
-      navRef.current.scrollTop = savedScroll.current;
-    }
+  useLayoutEffect(() => {
+    if (navRef.current) navRef.current.scrollTop = savedNavScroll;
   });
 
   const items = roleNavItems[role] || [];
-  const sections = navSections[role];
   const dangerItem = items.find((i) => i.danger);
   const getItem = (path: string) => items.find((i) => i.path === path);
   const isActive = (path: string) => pathname === path;
+
+  const toggleSection = (title: string) => {
+    setOpenSections((prev) => ({ ...prev, [title]: !prev[title] }));
+  };
 
   const renderItem = (item: NavItem) => {
     if (item.danger) return null;
@@ -215,46 +205,24 @@ const SidebarNav: React.FC<SidebarNavProps> = ({ role, onNavigate }) => {
         end
         className={() =>
           [
-            "group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150",
+            "group relative flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150",
             active
               ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
-              : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/60",
+              : "text-sidebar-foreground hover:bg-sidebar-accent/40",
           ].join(" ")
         }
         onClick={onNavigate}
       >
+        {/* Active left accent bar */}
+        {active && (
+          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-sidebar-primary-foreground/60" />
+        )}
         <item.icon
-          className={`h-4 w-4 flex-shrink-0 transition-colors ${
-            active
-              ? "text-sidebar-primary-foreground"
-              : "text-sidebar-foreground/50 group-hover:text-sidebar-foreground"
+          className={`h-4 w-4 flex-shrink-0 transition-all duration-150 ${
+            active ? "opacity-100" : "opacity-100"
           }`}
         />
-        <span className="truncate">{item.label}</span>
-        {active && <ChevronRight className="ml-auto h-3 w-3 opacity-60" />}
-      </NavLink>
-    );
-  };
-
-  const renderDangerItem = (item: NavItem) => {
-    const active = isActive(item.path);
-    return (
-      <NavLink
-        key={item.path}
-        to={item.path}
-        end
-        className={() =>
-          [
-            "group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 border",
-            active
-              ? "bg-red-500/15 border-red-500/40 text-red-400"
-              : "border-transparent text-red-400/60 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400",
-          ].join(" ")
-        }
-        onClick={onNavigate}
-      >
-        <item.icon className="h-4 w-4 flex-shrink-0 text-red-500" />
-        <span>{item.label}</span>
+        <span className="truncate leading-none">{item.label}</span>
       </NavLink>
     );
   };
@@ -262,47 +230,77 @@ const SidebarNav: React.FC<SidebarNavProps> = ({ role, onNavigate }) => {
   return (
     <nav
       ref={navRef}
-      className="flex-1 px-3 py-3 overflow-y-auto space-y-4"
-      style={{ scrollbarWidth: "thin" }}
+      className="flex-1 px-3 py-3 overflow-y-auto space-y-1"
+      style={{ scrollbarWidth: "none" }}
     >
-      {sections ? (
-        <>
-          {sections.map((section) => (
-            <div key={section.title}>
-              <p className="px-3 mb-1 text-[10px] font-bold uppercase tracking-widest text-sidebar-foreground/35">
-                {section.title}
-              </p>
-              <div className="space-y-0.5">
+      {sections.map((section) => {
+        const isOpen = openSections[section.title];
+        // Check if any item in section is active (to highlight section header)
+        const hasActive = section.items.some((p) => isActive(p));
+
+        return (
+          <div key={section.title} className="mb-1">
+            {/* Section header — clickable, collapsible */}
+            <button
+              onClick={() => toggleSection(section.title)}
+              className={`
+                w-full flex items-center gap-2.5 px-3 py-2 rounded-lg
+                text-[11px] font-bold uppercase tracking-[0.1em]
+                transition-all duration-150 group
+                text-sidebar-foreground hover:bg-sidebar-accent/30
+              `}
+            >
+              <section.icon className="h-3.5 w-3.5 flex-shrink-0 opacity-80" />
+              <span className="flex-1 text-left">{section.title}</span>
+              <ChevronRight
+                className={`h-3 w-3 opacity-60 transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`}
+              />
+            </button>
+
+            {/* Section items with animated reveal */}
+            <div
+              className={`overflow-hidden transition-all duration-200 ${
+                isOpen ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
+              }`}
+            >
+              {/* Vertical rule connecting items */}
+              <div className="relative pl-[22px] ml-3 border-l border-sidebar-border/20 mt-0.5 mb-1 space-y-0.5">
                 {section.items.map((path) => {
                   const item = getItem(path);
                   return item ? renderItem(item) : null;
                 })}
               </div>
             </div>
-          ))}
+          </div>
+        );
+      })}
 
-          {dangerItem && (
-            <div className="pt-2">
-              <div className="mx-2 mb-2 border-t border-red-500/20" />
-              <div className="flex items-center gap-1.5 px-3 mb-1">
-                <Shield className="h-3 w-3 text-red-400/60" />
-                <p className="text-[10px] font-bold uppercase tracking-widest text-red-400/60">
-                  Restricted
-                </p>
-              </div>
-              {renderDangerItem(dangerItem)}
-            </div>
-          )}
-        </>
-      ) : (
-        <div className="space-y-0.5">
-          {items.filter((i) => !i.danger).map(renderItem)}
-          {dangerItem && (
-            <>
-              <div className="mx-2 my-3 border-t border-red-500/20" />
-              {renderDangerItem(dangerItem)}
-            </>
-          )}
+      {/* Danger Zone */}
+      {dangerItem && (
+        <div className="pt-2">
+          <div className="mx-1 mb-3 border-t border-red-500/15" />
+          <div className="px-3 mb-1.5">
+            <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-red-400">
+              <Shield className="h-2.5 w-2.5" />
+              Restricted Access
+            </span>
+          </div>
+          <NavLink
+            to={dangerItem.path}
+            end
+            className={({ isActive: a }) =>
+              [
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-semibold transition-all duration-150",
+                a
+                  ? "bg-red-500/15 text-red-400 border border-red-500/20"
+                  : "text-red-400 hover:bg-red-500/10 border border-transparent",
+              ].join(" ")
+            }
+            onClick={onNavigate}
+          >
+            <dangerItem.icon className="h-4 w-4 flex-shrink-0" />
+            <span>{dangerItem.label}</span>
+          </NavLink>
         </div>
       )}
     </nav>
@@ -337,7 +335,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
       {/* Mobile overlay */}
       {isSidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-sm"
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
           onClick={closeSidebar}
         />
       )}
@@ -347,69 +345,72 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
         className={`
           fixed lg:sticky top-0 left-0 z-50 h-screen w-64 flex-shrink-0
           bg-sidebar text-sidebar-foreground flex flex-col
+          border-r border-sidebar-border/30
           transform transition-transform duration-200 ease-in-out
           lg:transform-none
           ${isSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
         `}
         style={{ background: "var(--gradient-sidebar)" }}
       >
-        {/* Brand */}
-        <div className="px-5 py-5 border-b border-sidebar-border/40">
+        {/* ── Brand header — bold, structured ── */}
+        <div className="px-4 pt-5 pb-4 border-b border-sidebar-border/20">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-sidebar-primary/90 flex items-center justify-center shadow-inner">
+            {/* Icon block with strong presence */}
+            <div className="w-9 h-9 rounded-xl bg-sidebar-primary flex items-center justify-center flex-shrink-0 shadow-lg shadow-sidebar-primary/30">
               <GraduationCap className="h-5 w-5 text-sidebar-primary-foreground" />
             </div>
-            <div className="leading-tight">
-              <p className="text-sm font-bold tracking-wide text-sidebar-foreground uppercase">
+            <div>
+              <p className="text-[15px] font-black tracking-tight text-sidebar-foreground leading-none">
                 ExamRoom
               </p>
-              <p className="text-[10px] font-medium text-sidebar-foreground/50 tracking-widest uppercase">
+              <p className="text-[10px] text-sidebar-foreground/70 mt-0.5 tracking-wide uppercase font-medium">
                 University System
               </p>
             </div>
           </div>
-        </div>
 
-        {/* Role pill */}
-        <div className="px-4 pt-4 pb-2">
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-sidebar-accent/30 border border-sidebar-border/30">
-            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40">
-                Active Role
-              </p>
-              <p className="text-xs font-semibold text-sidebar-foreground">
+          {/* Role badge — structured pill */}
+          <div className="mt-4 flex items-center justify-between">
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-sidebar-accent/30 border border-sidebar-border/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 shadow-sm shadow-green-400/50" />
+              <span className="text-[11px] font-semibold text-sidebar-foreground uppercase tracking-widest">
                 {roleLabels[user.role]}
-              </p>
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Stable nav component — scroll position is never lost */}
+        {/* ── Nav ── */}
         <SidebarNav role={user.role} onNavigate={closeSidebar} />
 
-        {/* User footer */}
-        <div className="px-4 py-4 border-t border-sidebar-border/40">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-full bg-sidebar-accent flex items-center justify-center ring-2 ring-sidebar-border/40">
-              <User className="h-4 w-4 text-sidebar-accent-foreground" />
+        {/* ── User footer — structured card ── */}
+        <div className="p-3 border-t border-sidebar-border/20">
+          <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-sidebar-accent/20 border border-sidebar-border/15 group">
+            {/* Avatar with ring */}
+            <div className="relative flex-shrink-0">
+              <div className="w-8 h-8 rounded-full bg-sidebar-primary/20 border-2 border-sidebar-primary/30 flex items-center justify-center">
+                <User className="h-4 w-4 text-sidebar-foreground" />
+              </div>
+              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-400 border-2 border-sidebar" />
             </div>
+
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-sidebar-foreground truncate leading-tight">
+              <p className="text-[12px] font-bold text-sidebar-foreground truncate leading-tight">
                 {user.name}
               </p>
-              <p className="text-[11px] text-sidebar-foreground/50 truncate">
+              <p className="text-[10px] text-sidebar-foreground/70 truncate mt-0.5">
                 {user.email}
               </p>
             </div>
+
+            <button
+              onClick={handleLogout}
+              title="Sign out"
+              className="opacity-0 group-hover:opacity-100 transition-all duration-150 p-1.5 rounded-lg hover:bg-red-500/15 text-sidebar-foreground hover:text-red-400"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
           </div>
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-            Sign out
-          </button>
         </div>
       </aside>
 
@@ -428,18 +429,19 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                 <Menu className="h-5 w-5" />
               )}
             </button>
-            <div className="hidden sm:flex items-center gap-2 text-sm">
-              <GraduationCap className="h-4 w-4 text-muted-foreground" />
-              <span className="text-muted-foreground">/</span>
+            <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
+              <GraduationCap className="h-4 w-4" />
+              <span className="opacity-40">/</span>
               <span className="font-semibold text-foreground">
                 {roleLabels[user.role]} Portal
               </span>
             </div>
           </div>
 
+          {/* User menu */}
           <div className="relative">
             <button
-              className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-muted transition-colors border border-transparent hover:border-border"
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-muted transition-colors"
               onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
             >
               <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
@@ -462,8 +464,8 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                   className="fixed inset-0 z-40"
                   onClick={() => setIsUserMenuOpen(false)}
                 />
-                <div className="absolute right-0 mt-2 w-52 bg-card rounded-xl shadow-xl border border-border z-50 overflow-hidden">
-                  <div className="px-4 py-3 bg-muted/30 border-b border-border">
+                <div className="absolute right-0 mt-1.5 w-48 bg-card rounded-lg shadow-lg border border-border z-50 overflow-hidden">
+                  <div className="px-3 py-2.5 border-b border-border">
                     <p className="text-sm font-semibold text-foreground">
                       {user.name}
                     </p>
@@ -473,10 +475,10 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                   </div>
                   <div className="p-1">
                     <button
-                      className="w-full px-3 py-2 text-left text-sm rounded-lg hover:bg-muted flex items-center gap-2.5 text-muted-foreground hover:text-foreground transition-colors"
+                      className="w-full px-3 py-1.5 text-left text-sm rounded-md hover:bg-muted flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
                       onClick={handleLogout}
                     >
-                      <LogOut className="h-4 w-4" />
+                      <LogOut className="h-3.5 w-3.5" />
                       Sign out
                     </button>
                   </div>
