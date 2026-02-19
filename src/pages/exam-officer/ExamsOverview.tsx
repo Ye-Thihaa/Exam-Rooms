@@ -25,6 +25,9 @@ import {
   UserX,
   Save,
   Eye,
+  ShieldAlert,
+  FileDown,
+  Search,
 } from "lucide-react";
 import AutoAssignModal, {
   type RankPeriodLimits,
@@ -42,6 +45,11 @@ import type {
   TeacherRole,
   TeacherWithAvailability,
 } from "@/services/teacherAssignmentTypes";
+import {
+  enrichTeacherWithCapability,
+  getWorkloadLevel,
+} from "@/services/teacherAssignmentTypes";
+
 import supabase from "@/utils/supabase";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -55,20 +63,12 @@ const DEFAULT_RANK_LIMITS: RankPeriodLimits = {
   Tutor: 10,
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Pairing rules
-// NOTE: Associate Professor is intentionally excluded here.
-// AP will only be used as an assistant as a last resort (fallback),
-// and even then is capped at 1 AP+AP pair per 2-day window.
-// ─────────────────────────────────────────────────────────────────────────────
-
 const SUPERVISOR_RANK = "Associate Professor";
 
 const SUPERVISOR_ASSISTANT_PAIRS: Array<[string, string]> = [
   [SUPERVISOR_RANK, "Lecturer"],
   [SUPERVISOR_RANK, "Assistant Lecturer"],
   [SUPERVISOR_RANK, "Tutor"],
-  // Associate Professor intentionally omitted — AP+AP is last resort only
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -91,6 +91,15 @@ interface PlannedAssignment {
   shiftEnd?: string;
 }
 
+/** Standby is day-level (exam_room_id = null, role = "Standby") */
+interface StandbyAssignment {
+  teacherId: number;
+  teacherName: string;
+  teacherRank: string;
+  teacherDepartment?: string;
+  examDate: string;
+}
+
 interface RoomPreview {
   room: RoomCardData;
   examRoomId: number | null;
@@ -105,14 +114,14 @@ type BulkPhase = "calculating" | "preview" | "saving" | "done";
 interface RoomAssignment {
   teacher_name: string;
   teacher_rank: string;
-  role: TeacherRole;
+  role: TeacherRole | "Standby";
   session: ExamSession;
   shift_start: string | null;
   shift_end: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Targeted fetch — teacher_assignment JOIN teacher via FK
+// DB helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function fetchRoomAssignments(
@@ -122,16 +131,8 @@ async function fetchRoomAssignments(
   const { data, error } = await supabase
     .from("teacher_assignment")
     .select(
-      `
-      role,
-      session,
-      shift_start,
-      shift_end,
-      teacher:teacher_id (
-        name,
-        rank
-      )
-    `,
+      `role, session, shift_start, shift_end,
+       teacher:teacher_id (name, rank)`,
     )
     .eq("exam_room_id", examRoomId)
     .eq("exam_date", examDate);
@@ -148,8 +149,119 @@ async function fetchRoomAssignments(
   }));
 }
 
+/** Fetch all standby assignments from DB (exam_room_id is null, role = Standby) */
+async function fetchAllStandbyAssignments(): Promise<StandbyAssignment[]> {
+  const { data, error } = await supabase
+    .from("teacher_assignment")
+    .select(
+      `exam_date, teacher:teacher_id (teacher_id, name, rank, department)`,
+    )
+    .eq("role", "Standby")
+    .is("exam_room_id", null)
+    .order("exam_date", { ascending: true });
+
+  if (error) throw error;
+
+  return (data ?? []).map((row: any) => ({
+    teacherId: row.teacher?.teacher_id,
+    teacherName: row.teacher?.name ?? "Unknown",
+    teacherRank: row.teacher?.rank ?? "",
+    teacherDepartment: row.teacher?.department ?? "",
+    examDate: row.exam_date,
+  }));
+}
+
+/** Fetch standby assignments for a specific date */
+async function fetchStandbyByDate(
+  examDate: string,
+): Promise<StandbyAssignment[]> {
+  const { data, error } = await supabase
+    .from("teacher_assignment")
+    .select(
+      `exam_date, teacher:teacher_id (teacher_id, name, rank, department)`,
+    )
+    .eq("role", "Standby")
+    .eq("exam_date", examDate)
+    .is("exam_room_id", null);
+
+  if (error) throw error;
+
+  return (data ?? []).map((row: any) => ({
+    teacherId: row.teacher?.teacher_id,
+    teacherName: row.teacher?.name ?? "Unknown",
+    teacherRank: row.teacher?.rank ?? "",
+    teacherDepartment: row.teacher?.department ?? "",
+    examDate: row.exam_date,
+  }));
+}
+
+async function commitStandbyAssignments(
+  standbys: StandbyAssignment[],
+): Promise<void> {
+  if (standbys.length === 0) return;
+  const rows = standbys.map((s) => ({
+    teacher_id: s.teacherId,
+    role: "Standby",
+    exam_date: s.examDate,
+    session: "Morning",
+    exam_room_id: null,
+    shift_start: null,
+    shift_end: null,
+  }));
+  const { error } = await supabase.from("teacher_assignment").insert(rows);
+  if (error) throw error;
+}
+
+async function deleteStandbyByDateAndTeacher(
+  examDate: string,
+  teacherId: number,
+): Promise<void> {
+  const { error } = await supabase
+    .from("teacher_assignment")
+    .delete()
+    .eq("role", "Standby")
+    .eq("exam_date", examDate)
+    .eq("teacher_id", teacherId)
+    .is("exam_room_id", null);
+  if (error) throw error;
+}
+
+/** Fetch all teachers available for a date (not already assigned that day) */
+async function fetchAvailableTeachersForDate(
+  examDate: string,
+): Promise<TeacherWithAvailability[]> {
+  const { data: teachers, error: tErr } = await supabase
+    .from("teacher")
+    .select("teacher_id, name, rank, department, total_periods_assigned")
+    .order("name");
+  if (tErr) throw tErr;
+
+  const { data: assigned, error: aErr } = await supabase
+    .from("teacher_assignment")
+    .select("teacher_id")
+    .eq("exam_date", examDate);
+  if (aErr) throw aErr;
+
+  const assignedIds = new Set((assigned ?? []).map((a: any) => a.teacher_id));
+
+  return (teachers ?? []).map((t: any) => {
+    const enriched = enrichTeacherWithCapability(t);
+    const isBusy = assignedIds.has(t.teacher_id);
+    return {
+      ...enriched,
+      total_periods_assigned: isBusy ? 999 : (t.total_periods_assigned ?? 0),
+      availability: {
+        teacher_id: t.teacher_id,
+        is_available: !isBusy,
+        conflict_reason: isBusy ? "Already Assigned" : null,
+      },
+      workload_level: getWorkloadLevel(t.total_periods_assigned),
+    };
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Algorithm helpers
+// Algorithm helpers (for BulkAssignModal — standby removed from automation)
 // ─────────────────────────────────────────────────────────────────────────────
 
 function isEligible(
@@ -175,33 +287,17 @@ function lowestWorkload(
   );
 }
 
-/**
- * Increment a teacher's period count in both pools so every subsequent
- * room sees the correct running total.
- */
 function incrementPeriodCount(teacherId: number, ctx: BulkAssignContext): void {
   for (const t of ctx.supervisors) {
-    if (t.teacher_id === teacherId) {
+    if (t.teacher_id === teacherId)
       t.total_periods_assigned = (t.total_periods_assigned ?? 0) + 1;
-    }
   }
   for (const t of ctx.assistants) {
-    if (t.teacher_id === teacherId) {
+    if (t.teacher_id === teacherId)
       t.total_periods_assigned = (t.total_periods_assigned ?? 0) + 1;
-    }
   }
 }
 
-/**
- * Pick a supervisor + assistant pair for one room.
- *
- * Assistant priority order:
- *   1. Lecturer
- *   2. Assistant Lecturer
- *   3. Tutor
- *   4. Associate Professor — ONLY as absolute last resort,
- *      and only when apApAllowed = true (quota: 1 per 2-day window)
- */
 function pickPairedTeachers(
   supervisors: TeacherWithAvailability[],
   assistants: TeacherWithAvailability[],
@@ -217,8 +313,6 @@ function pickPairedTeachers(
   const eligibleSups = supervisors.filter(
     (t) => t.rank === SUPERVISOR_RANK && isEligible(t, limits, dayUsedIds),
   );
-
-  // Exclude APs from normal assistant pool — AP+AP only via last-resort path
   const eligibleAssts = assistants.filter(
     (t) => isEligible(t, limits, dayUsedIds) && t.rank !== SUPERVISOR_RANK,
   );
@@ -232,13 +326,11 @@ function pickPairedTeachers(
     pastPairs.map((p) => p.assistantId).filter(Boolean) as number[],
   );
 
-  // Pick supervisor (prefer fresh / lowest workload)
   const supFresh = eligibleSups.filter((t) => !pastSupIds.has(t.teacher_id));
   const supervisor = lowestWorkload(
     supFresh.length > 0 ? supFresh : eligibleSups,
   );
 
-  // Helper: try AP as assistant (last resort)
   function tryApAssistant(): TeacherWithAvailability | null {
     if (!apApAllowed) return null;
     const apAssts = assistants.filter(
@@ -252,7 +344,6 @@ function pickPairedTeachers(
     return lowestWorkload(apFresh.length > 0 ? apFresh : apAssts);
   }
 
-  // Build viable non-AP pair types
   const viablePairs: Array<{ key: string; asstRank: string; usage: number }> =
     [];
   for (const [, asstRank] of SUPERVISOR_ASSISTANT_PAIRS) {
@@ -262,12 +353,10 @@ function pickPairedTeachers(
     }
   }
 
-  // No non-AP assistants at all → last resort AP
   if (viablePairs.length === 0) {
     return { supervisor, assistant: tryApAssistant() };
   }
 
-  // Pick least-used non-AP pair type
   const chosen = viablePairs.reduce((best, cur) =>
     cur.usage < best.usage ? cur : best,
   );
@@ -278,7 +367,6 @@ function pickPairedTeachers(
     .filter((t) => t.teacher_id !== supervisor.teacher_id);
 
   if (asstOfRank.length === 0) {
-    // Chosen rank exhausted → try any other non-AP assistant
     const anyAsst = eligibleAssts.filter(
       (t) => t.teacher_id !== supervisor.teacher_id,
     );
@@ -289,7 +377,6 @@ function pickPairedTeachers(
         assistant: lowestWorkload(asstFresh.length > 0 ? asstFresh : anyAsst),
       };
     }
-    // All non-AP exhausted → last resort AP
     return { supervisor, assistant: tryApAssistant() };
   }
 
@@ -300,23 +387,18 @@ function pickPairedTeachers(
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Pure calculation — NO database writes
-//
-// AP+AP quota: at most 1 AP+AP pairing per every 2-day window.
-// Dates are sorted and grouped: [day0,day1]=window0, [day2,day3]=window1, …
-// ─────────────────────────────────────────────────────────────────────────────
-
 function calculateAssignments(
   rooms: RoomCardData[],
   rankLimits: RankPeriodLimits,
   ctx: BulkAssignContext,
-): { previews: RoomPreview[]; planned: PlannedAssignment[] } {
+): {
+  previews: RoomPreview[];
+  planned: PlannedAssignment[];
+} {
   const dayUsedIds = new Map<string, Set<number>>();
   const pairHistory: PairHistory = new Map();
   const pairTypeUsageByDate = new Map<string, Map<string, number>>();
 
-  // Build 2-day window index
   const sortedDates = [...new Set(rooms.map((r) => r.examDate))].sort();
   const apApQuotaByWindow = new Map<string, number>();
   function getWindowKey(date: string): string {
@@ -376,7 +458,6 @@ function calculateAssignments(
     const historyKey = room.primaryGroupLabel || room.roomNumber;
     const pastPairs = pairHistory.get(historyKey) ?? [];
 
-    // AP+AP allowed only if this 2-day window hasn't used its quota yet
     const windowKey = getWindowKey(date);
     const apApAllowed = (apApQuotaByWindow.get(windowKey) ?? 0) < 1;
 
@@ -390,7 +471,6 @@ function calculateAssignments(
       apApAllowed,
     );
 
-    // Consume AP+AP quota if we used it
     if (supervisor && assistant && assistant.rank === SUPERVISOR_RANK) {
       apApQuotaByWindow.set(
         windowKey,
@@ -455,6 +535,439 @@ function calculateAssignments(
 
   return { previews, planned };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PDF Export utility (client-side using iframe + print)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function exportStandbyPDF(standbys: StandbyAssignment[]) {
+  if (standbys.length === 0) return;
+
+  // Group by date
+  const byDate: Record<string, StandbyAssignment[]> = {};
+  standbys.forEach((s) => {
+    if (!byDate[s.examDate]) byDate[s.examDate] = [];
+    byDate[s.examDate].push(s);
+  });
+
+  const today = new Date().toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+
+  const rows = Object.entries(byDate)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, teachers], dateIdx) => {
+      const teacherRows = teachers
+        .map(
+          (t, i) => `
+          <tr>
+            ${i === 0 ? `<td rowspan="${teachers.length}" class="date-cell">${date}</td>` : ""}
+            <td>${i + 1}</td>
+            <td>${t.teacherName}</td>
+            <td>${t.teacherRank}</td>
+            <td>${t.teacherDepartment ?? "—"}</td>
+          </tr>`,
+        )
+        .join("");
+      return teacherRows;
+    })
+    .join("");
+
+  const totalTeachers = standbys.length;
+  const totalDates = Object.keys(byDate).length;
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8" />
+      <title>Standby Teacher List</title>
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+          font-family: 'Segoe UI', Arial, sans-serif;
+          font-size: 11pt;
+          color: #1a1a2e;
+          padding: 32px 40px;
+          background: #fff;
+        }
+        .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          border-bottom: 3px solid #4f46e5;
+          padding-bottom: 16px;
+          margin-bottom: 24px;
+        }
+        .header-left h1 {
+          font-size: 20pt;
+          font-weight: 800;
+          color: #4f46e5;
+          letter-spacing: -0.5px;
+        }
+        .header-left p {
+          font-size: 9.5pt;
+          color: #6b7280;
+          margin-top: 4px;
+        }
+        .header-right {
+          text-align: right;
+          font-size: 9pt;
+          color: #6b7280;
+          line-height: 1.6;
+        }
+        .summary-row {
+          display: flex;
+          gap: 16px;
+          margin-bottom: 24px;
+        }
+        .summary-card {
+          flex: 1;
+          background: #f0f0ff;
+          border: 1px solid #c7d2fe;
+          border-radius: 8px;
+          padding: 12px 16px;
+          text-align: center;
+        }
+        .summary-card .num {
+          font-size: 22pt;
+          font-weight: 800;
+          color: #4f46e5;
+        }
+        .summary-card .lbl {
+          font-size: 8.5pt;
+          color: #6b7280;
+          margin-top: 2px;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 10pt;
+        }
+        thead tr {
+          background: #4f46e5;
+          color: #fff;
+        }
+        thead th {
+          padding: 10px 12px;
+          text-align: left;
+          font-weight: 700;
+          font-size: 9pt;
+          letter-spacing: 0.3px;
+        }
+        tbody tr:nth-child(even) { background: #f8f8ff; }
+        tbody tr:hover { background: #ede9fe; }
+        tbody td {
+          padding: 9px 12px;
+          border-bottom: 1px solid #e5e7eb;
+          vertical-align: top;
+        }
+        .date-cell {
+          font-weight: 700;
+          color: #4f46e5;
+          background: #eef2ff !important;
+          border-right: 2px solid #c7d2fe;
+          white-space: nowrap;
+        }
+        .footer {
+          margin-top: 32px;
+          font-size: 8.5pt;
+          color: #9ca3af;
+          border-top: 1px solid #e5e7eb;
+          padding-top: 12px;
+          display: flex;
+          justify-content: space-between;
+        }
+        .badge {
+          display: inline-block;
+          background: #ede9fe;
+          color: #6d28d9;
+          border-radius: 4px;
+          padding: 1px 7px;
+          font-size: 8.5pt;
+          font-weight: 600;
+        }
+        @media print {
+          body { padding: 20px 24px; }
+          thead { display: table-header-group; }
+          tr { page-break-inside: avoid; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="header-left">
+          <h1>🛡️ Standby Teacher List</h1>
+          <p>Exam Invigilation — Standby Assignments by Date</p>
+        </div>
+        <div class="header-right">
+          <div>Generated: ${today}</div>
+          <div>Document: STANDBY-${new Date().getFullYear()}</div>
+        </div>
+      </div>
+
+      <div class="summary-row">
+        <div class="summary-card">
+          <div class="num">${totalTeachers}</div>
+          <div class="lbl">Total Standby Teachers</div>
+        </div>
+        <div class="summary-card">
+          <div class="num">${totalDates}</div>
+          <div class="lbl">Exam Dates</div>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width:120px">Exam Date</th>
+            <th style="width:36px">#</th>
+            <th>Teacher Name</th>
+            <th>Rank</th>
+            <th>Department</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+
+      <div class="footer">
+        <span>Confidential — For Internal Use Only</span>
+        <span>Total: ${totalTeachers} standby teacher${totalTeachers !== 1 ? "s" : ""} across ${totalDates} date${totalDates !== 1 ? "s" : ""}</span>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const win = window.open("", "_blank", "width=900,height=700");
+  if (!win) return;
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => {
+    win.print();
+  }, 500);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Manual Standby Assignment Modal
+// ─────────────────────────────────────────────────────────────────────────────
+
+const StandbyAssignModal: React.FC<{
+  examDate: string;
+  existingStandbys: StandbyAssignment[];
+  onClose: () => void;
+  onSaved: (standbys: StandbyAssignment[]) => void;
+}> = ({ examDate, existingStandbys, onClose, onSaved }) => {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [teachers, setTeachers] = useState<TeacherWithAvailability[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(
+    new Set(existingStandbys.map((s) => s.teacherId)),
+  );
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const list = await fetchAvailableTeachersForDate(examDate);
+        setTeachers(list);
+      } catch (e: any) {
+        setError(e?.message ?? "Failed to load teachers");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [examDate]);
+
+  const filtered = teachers.filter(
+    (t) =>
+      t.name.toLowerCase().includes(search.toLowerCase()) ||
+      t.rank.toLowerCase().includes(search.toLowerCase()) ||
+      (t.department ?? "").toLowerCase().includes(search.toLowerCase()),
+  );
+
+  const toggleTeacher = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      // Remove all existing standbys for this date first
+      for (const s of existingStandbys) {
+        await deleteStandbyByDateAndTeacher(examDate, s.teacherId);
+      }
+      // Insert newly selected ones
+      const newStandbys: StandbyAssignment[] = teachers
+        .filter((t) => selectedIds.has(t.teacher_id))
+        .map((t) => ({
+          teacherId: t.teacher_id,
+          teacherName: t.name,
+          teacherRank: t.rank,
+          teacherDepartment: t.department,
+          examDate,
+        }));
+      await commitStandbyAssignments(newStandbys);
+      onSaved(newStandbys);
+      onClose();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to save standby assignments");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4">
+      <div className="bg-white border rounded-xl max-w-lg w-full shadow-2xl flex flex-col max-h-[88vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-lg bg-violet-100 flex items-center justify-center">
+              <ShieldAlert className="h-5 w-5 text-violet-600" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-gray-900">
+                Assign Standby Teachers
+              </h2>
+              <p className="text-xs text-muted-foreground">{examDate}</p>
+            </div>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {/* Search */}
+        <div className="px-4 pt-4 pb-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, rank, or department…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 h-9 text-sm"
+            />
+          </div>
+          {selectedIds.size > 0 && (
+            <p className="text-xs text-violet-700 font-semibold mt-2">
+              {selectedIds.size} teacher{selectedIds.size !== 1 ? "s" : ""}{" "}
+              selected
+            </p>
+          )}
+        </div>
+
+        {/* Teacher list */}
+        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1.5">
+          {loading ? (
+            <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin text-violet-500" />
+              <span className="text-sm">Loading teachers…</span>
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="text-center py-8 text-sm text-muted-foreground">
+              No teachers found
+            </p>
+          ) : (
+            filtered.map((t) => {
+              const isSelected = selectedIds.has(t.teacher_id);
+              const isBusy = !t.availability.is_available;
+              return (
+                <button
+                  key={t.teacher_id}
+                  onClick={() => toggleTeacher(t.teacher_id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left transition-all ${
+                    isSelected
+                      ? "bg-violet-50 border-violet-300 ring-1 ring-violet-300"
+                      : isBusy
+                        ? "bg-gray-50 border-gray-200 opacity-60"
+                        : "bg-white border-gray-200 hover:border-violet-200 hover:bg-violet-50/30"
+                  }`}
+                >
+                  <div
+                    className={`shrink-0 h-6 w-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                      isSelected
+                        ? "bg-violet-500 border-violet-500"
+                        : "border-gray-300"
+                    }`}
+                  >
+                    {isSelected && (
+                      <CheckCircle2 className="h-4 w-4 text-white" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">
+                      {t.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {t.rank}
+                      {t.department ? ` · ${t.department}` : ""}
+                    </p>
+                  </div>
+                  {isBusy && (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                      Assigned
+                    </span>
+                  )}
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {error && (
+          <div className="mx-4 mb-2 flex items-start gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            {error}
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t flex items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            {selectedIds.size} standby teacher
+            {selectedIds.size !== 1 ? "s" : ""} for {examDate}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onClose}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="gap-2 bg-violet-600 hover:bg-violet-700"
+              onClick={handleSave}
+              disabled={saving}
+            >
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              {saving ? "Saving…" : "Save Standby"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Period-limits settings modal
@@ -628,11 +1141,7 @@ const TeacherChip: React.FC<{
   found: boolean;
 }> = ({ label, name, rank, found }) => (
   <div
-    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
-      found
-        ? "bg-emerald-50 border border-emerald-200"
-        : "bg-amber-50 border border-amber-200"
-    }`}
+    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${found ? "bg-emerald-50 border border-emerald-200" : "bg-amber-50 border border-amber-200"}`}
   >
     <div
       className={`shrink-0 h-6 w-6 rounded-full flex items-center justify-center ${found ? "bg-emerald-100" : "bg-amber-100"}`}
@@ -662,7 +1171,33 @@ const TeacherChip: React.FC<{
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Bulk assign modal
+// Standby chip
+// ─────────────────────────────────────────────────────────────────────────────
+
+const StandbyChip: React.FC<{ standby: StandbyAssignment; index: number }> = ({
+  standby,
+  index,
+}) => (
+  <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-violet-50 border border-violet-200">
+    <div className="shrink-0 h-6 w-6 rounded-full bg-violet-100 flex items-center justify-center">
+      <ShieldAlert className="h-3.5 w-3.5 text-violet-600" />
+    </div>
+    <div className="min-w-0">
+      <span className="font-bold uppercase tracking-wide text-[10px] block text-violet-700">
+        Standby {index + 1}
+      </span>
+      <p className="font-semibold text-gray-800 truncate">
+        {standby.teacherName}{" "}
+        <span className="font-normal text-muted-foreground">
+          · {standby.teacherRank}
+        </span>
+      </p>
+    </div>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bulk assign modal (standby removed — manual only)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BulkAssignModal: React.FC<{
@@ -764,6 +1299,7 @@ const BulkAssignModal: React.FC<{
     },
     {},
   );
+
   const assignableCount = previews.filter((p) => p.ok).length;
   const totalTeachers = planned.length;
   const savedCount = saveResults.filter((r) => r.ok).length;
@@ -802,7 +1338,7 @@ const BulkAssignModal: React.FC<{
                 <p className="text-xs mt-1">
                   {phase === "calculating"
                     ? "This may take a moment for large schedules…"
-                    : `Writing ${totalTeachers} teacher assignment${totalTeachers !== 1 ? "s" : ""} to database…`}
+                    : `Writing ${totalTeachers} assignments to database…`}
                 </p>
               </div>
             </div>
@@ -818,12 +1354,20 @@ const BulkAssignModal: React.FC<{
                     assigned
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {totalTeachers} teacher assignment
-                    {totalTeachers !== 1 ? "s" : ""} ready · Review below then
-                    click{" "}
+                    {totalTeachers} assignments ready · Review then click{" "}
                     <strong className="text-gray-700">Save to Database</strong>
                   </p>
                 </div>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-50 border border-violet-200">
+                <ShieldAlert className="h-4 w-4 text-violet-500 shrink-0" />
+                <p className="text-xs text-violet-700">
+                  <span className="font-semibold">
+                    Standby teachers are not auto-assigned.
+                  </span>{" "}
+                  Use the <strong>"Assign Standby"</strong> button on each date
+                  card to manually select standby teachers.
+                </p>
               </div>
 
               {dates.map((date) => {
@@ -839,13 +1383,7 @@ const BulkAssignModal: React.FC<{
                         </span>
                       </div>
                       <span
-                        className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${
-                          okCount === datePreviews.length
-                            ? "bg-emerald-100 text-emerald-700"
-                            : okCount === 0
-                              ? "bg-amber-100 text-amber-700"
-                              : "bg-blue-100 text-blue-700"
-                        }`}
+                        className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${okCount === datePreviews.length ? "bg-emerald-100 text-emerald-700" : okCount === 0 ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700"}`}
                       >
                         {okCount}/{datePreviews.length} rooms ready
                       </span>
@@ -924,14 +1462,13 @@ const BulkAssignModal: React.FC<{
                   >
                     {error
                       ? "Save completed with errors"
-                      : `Saved successfully — ${savedCount} of ${rooms.length} rooms assigned`}
+                      : `Saved — ${savedCount} of ${rooms.length} rooms`}
                   </p>
                   {error && (
                     <p className="text-xs text-amber-700 mt-0.5">{error}</p>
                   )}
                 </div>
               </div>
-
               {dates.map((date) => {
                 const datePreviews = previewsByDate[date] ?? [];
                 const okCount = saveResults.filter(
@@ -948,13 +1485,7 @@ const BulkAssignModal: React.FC<{
                         </span>
                       </div>
                       <span
-                        className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${
-                          okCount === datePreviews.length
-                            ? "bg-emerald-100 text-emerald-700"
-                            : okCount === 0
-                              ? "bg-amber-100 text-amber-700"
-                              : "bg-blue-100 text-blue-700"
-                        }`}
+                        className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${okCount === datePreviews.length ? "bg-emerald-100 text-emerald-700" : okCount === 0 ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700"}`}
                       >
                         {okCount}/{datePreviews.length} saved
                       </span>
@@ -1023,9 +1554,8 @@ const BulkAssignModal: React.FC<{
         <div className="px-6 py-4 border-t shrink-0 flex items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
             {phase === "preview" &&
-              `${totalTeachers} assignment${totalTeachers !== 1 ? "s" : ""} ready to save`}
-            {phase === "done" &&
-              `${savedCount} of ${rooms.length} rooms saved to database`}
+              `${totalTeachers} assignments ready to save`}
+            {phase === "done" && `${savedCount} of ${rooms.length} rooms saved`}
           </p>
           <div className="flex gap-2">
             {phase === "preview" && (
@@ -1078,11 +1608,7 @@ function fmtTime(t: string | null | undefined) {
 
 const SessionBadge: React.FC<{ session: ExamSession }> = ({ session }) => (
   <span
-    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-      session === "Morning"
-        ? "bg-amber-100 text-amber-700"
-        : "bg-orange-100 text-orange-700"
-    }`}
+    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${session === "Morning" ? "bg-amber-100 text-amber-700" : "bg-orange-100 text-orange-700"}`}
   >
     {session === "Morning" ? (
       <Sun className="h-2.5 w-2.5" />
@@ -1099,11 +1625,7 @@ const ExamRow: React.FC<{ exam: Exam; badge: "primary" | "secondary" }> = ({
 }) => (
   <div className="flex items-start gap-3 py-3 border-b last:border-0">
     <span
-      className={`mt-0.5 shrink-0 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${
-        badge === "primary"
-          ? "bg-blue-100 text-blue-700"
-          : "bg-green-100 text-green-700"
-      }`}
+      className={`mt-0.5 shrink-0 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${badge === "primary" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"}`}
     >
       {badge}
     </span>
@@ -1209,7 +1731,6 @@ const RoomDetailModal: React.FC<{
                 </span>
               )}
             </h3>
-
             {assignmentsLoading ? (
               <div className="flex items-center gap-3 px-4 py-3 rounded-xl border bg-gray-50 text-muted-foreground text-sm">
                 <Loader2 className="h-4 w-4 animate-spin shrink-0 text-primary" />
@@ -1288,7 +1809,6 @@ const RoomDetailModal: React.FC<{
               </div>
             )}
           </div>
-
           <div>
             <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
               <BookOpen className="h-4 w-4" />
@@ -1338,11 +1858,7 @@ const RoomCard: React.FC<{
   onToggleSelect,
 }) => (
   <div
-    className={`border rounded-xl p-4 bg-background transition-all duration-200 flex flex-col gap-3 ${
-      selected
-        ? "ring-2 ring-primary border-primary shadow-md"
-        : "hover:shadow-md"
-    }`}
+    className={`border rounded-xl p-4 bg-background transition-all duration-200 flex flex-col gap-3 ${selected ? "ring-2 ring-primary border-primary shadow-md" : "hover:shadow-md"}`}
   >
     <div className="cursor-pointer flex-1" onClick={() => onCardClick(room)}>
       <div className="flex items-start justify-between gap-2 mb-2">
@@ -1376,7 +1892,6 @@ const RoomCard: React.FC<{
           <ChevronRight className="h-4 w-4 text-muted-foreground" />
         </div>
       </div>
-
       {room.examTime && (
         <div className="flex items-center gap-1 mb-2">
           <Clock className="h-3 w-3 text-muted-foreground" />
@@ -1385,7 +1900,6 @@ const RoomCard: React.FC<{
           </span>
         </div>
       )}
-
       <div className="space-y-1.5">
         {room.primaryGroupLabel && (
           <div className="flex items-start gap-1.5">
@@ -1409,7 +1923,6 @@ const RoomCard: React.FC<{
           </p>
         )}
       </div>
-
       <div className="flex flex-wrap gap-1.5 mt-3">
         {room.primaryExams.length > 0 && (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700">
@@ -1424,7 +1937,6 @@ const RoomCard: React.FC<{
           </span>
         )}
       </div>
-
       <div className="flex items-center gap-1.5 mt-3 pt-3 border-t">
         <Users className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-semibold text-foreground">
@@ -1438,7 +1950,6 @@ const RoomCard: React.FC<{
         )}
       </div>
     </div>
-
     <Button
       variant={assignmentCount > 0 ? "outline" : "default"}
       size="sm"
@@ -1487,6 +1998,13 @@ const ExamsOverview: React.FC = () => {
   });
   const [showLimitsModal, setShowLimitsModal] = useState(false);
 
+  // Standby state
+  const [standbyByDate, setStandbyByDate] = useState<
+    Record<string, StandbyAssignment[]>
+  >({});
+  const [standbyModalDate, setStandbyModalDate] = useState<string | null>(null);
+  const [exportingPDF, setExportingPDF] = useState(false);
+
   const loadAssignmentCounts = useCallback(async () => {
     try {
       const all = await teacherAssignmentQueries.getAll();
@@ -1501,6 +2019,20 @@ const ExamsOverview: React.FC = () => {
     }
   }, []);
 
+  const loadAllStandbys = useCallback(async () => {
+    try {
+      const all = await fetchAllStandbyAssignments();
+      const grouped: Record<string, StandbyAssignment[]> = {};
+      all.forEach((s) => {
+        if (!grouped[s.examDate]) grouped[s.examDate] = [];
+        grouped[s.examDate].push(s);
+      });
+      setStandbyByDate(grouped);
+    } catch (err) {
+      console.error("Error loading standbys:", err);
+    }
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     async function load() {
@@ -1510,7 +2042,7 @@ const ExamsOverview: React.FC = () => {
         const groups = await examRoomLinkQueries.getAllDateGroups();
         if (!mounted) return;
         setDateGroups(groups);
-        await loadAssignmentCounts();
+        await Promise.all([loadAssignmentCounts(), loadAllStandbys()]);
       } catch (err: any) {
         if (!mounted) return;
         setErrorMsg(err?.message ?? "Failed to load exam schedules");
@@ -1522,7 +2054,7 @@ const ExamsOverview: React.FC = () => {
     return () => {
       mounted = false;
     };
-  }, [loadAssignmentCounts]);
+  }, [loadAssignmentCounts, loadAllStandbys]);
 
   const filteredGroups = dateGroups.filter((group) => {
     const status = deriveStatus(group.examDate);
@@ -1616,6 +2148,22 @@ const ExamsOverview: React.FC = () => {
     setRoomAssignments([]);
   };
 
+  const handleExportStandbyPDF = async () => {
+    setExportingPDF(true);
+    try {
+      const all = await fetchAllStandbyAssignments();
+      exportStandbyPDF(all);
+    } catch (e) {
+      console.error("PDF export failed:", e);
+    } finally {
+      setExportingPDF(false);
+    }
+  };
+
+  const totalStandbyCount = Object.values(standbyByDate).reduce(
+    (sum, arr) => sum + arr.length,
+    0,
+  );
   const selectedCount = selectedRoomKeys.size;
 
   return (
@@ -1645,6 +2193,26 @@ const ExamsOverview: React.FC = () => {
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Export Standby PDF */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 border-violet-300 text-violet-700 hover:bg-violet-50"
+            onClick={handleExportStandbyPDF}
+            disabled={exportingPDF || totalStandbyCount === 0}
+          >
+            {exportingPDF ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileDown className="h-4 w-4" />
+            )}
+            Export Standby PDF
+            {totalStandbyCount > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-violet-100 text-violet-700 text-[10px] font-bold">
+                {totalStandbyCount}
+              </span>
+            )}
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -1740,11 +2308,13 @@ const ExamsOverview: React.FC = () => {
         ) : (
           filteredGroups.map((group) => {
             const status = deriveStatus(group.examDate);
+            const dateStandbys = standbyByDate[group.examDate] ?? [];
             return (
               <div
                 key={group.examDate}
                 className="bg-card border rounded-xl p-6"
               >
+                {/* Date header */}
                 <div className="flex items-center gap-3 mb-5 pb-4 border-b">
                   <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                     <Calendar className="h-5 w-5 text-primary" />
@@ -1760,16 +2330,59 @@ const ExamsOverview: React.FC = () => {
                   </div>
                   <div className="ml-auto flex items-center gap-2">
                     <span
-                      className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
-                        status === "scheduled"
-                          ? "bg-blue-100 text-blue-700"
-                          : "bg-green-100 text-green-700"
-                      }`}
+                      className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${status === "scheduled" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"}`}
                     >
                       {status.charAt(0).toUpperCase() + status.slice(1)}
                     </span>
                   </div>
                 </div>
+
+                {/* ── Standby section ── */}
+                <div className="mb-5 p-4 rounded-xl border border-violet-200 bg-violet-50/40">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <ShieldAlert className="h-4 w-4 text-violet-600" />
+                      <span className="text-sm font-bold text-violet-800">
+                        Standby Teachers
+                        {dateStandbys.length > 0 && (
+                          <span className="ml-2 inline-flex items-center justify-center h-4 min-w-4 px-1.5 rounded-full bg-violet-200 text-violet-800 text-[10px] font-bold">
+                            {dateStandbys.length}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 border-violet-300 text-violet-700 hover:bg-violet-100 h-8 text-xs"
+                      onClick={() => setStandbyModalDate(group.examDate)}
+                    >
+                      <ShieldAlert className="h-3.5 w-3.5" />
+                      {dateStandbys.length > 0
+                        ? "Edit Standby"
+                        : "Assign Standby"}
+                    </Button>
+                  </div>
+
+                  {dateStandbys.length === 0 ? (
+                    <div className="flex items-center gap-2 text-sm text-violet-500 italic">
+                      <UserX className="h-4 w-4" />
+                      No standby teachers assigned for this date yet
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {dateStandbys.map((sb, i) => (
+                        <StandbyChip
+                          key={sb.teacherId}
+                          standby={sb}
+                          index={i}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Rooms grid */}
                 {group.rooms.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-6">
                     No rooms assigned for this date
@@ -1796,6 +2409,7 @@ const ExamsOverview: React.FC = () => {
         )}
       </div>
 
+      {/* Modals */}
       {selectedRoom && (
         <RoomDetailModal
           room={selectedRoom}
@@ -1835,6 +2449,21 @@ const ExamsOverview: React.FC = () => {
           limits={rankLimits}
           onSave={setRankLimits}
           onClose={() => setShowLimitsModal(false)}
+        />
+      )}
+
+      {/* Manual standby modal */}
+      {standbyModalDate && (
+        <StandbyAssignModal
+          examDate={standbyModalDate}
+          existingStandbys={standbyByDate[standbyModalDate] ?? []}
+          onClose={() => setStandbyModalDate(null)}
+          onSaved={(newStandbys) => {
+            setStandbyByDate((prev) => ({
+              ...prev,
+              [standbyModalDate]: newStandbys,
+            }));
+          }}
         />
       )}
     </DashboardLayout>
