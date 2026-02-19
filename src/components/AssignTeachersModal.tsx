@@ -20,6 +20,24 @@ import {
   ExamRoomAssignmentStatus,
 } from "@/services/teacherAssignmentTypes";
 
+// ─── Rank limit helpers ───────────────────────────────────────────────────────
+
+/** Map of rank name → max periods. Passed in from the parent page. */
+export type RankPeriodLimits = Record<string, number>;
+
+const getPeriodLimit = (rank: string, limits: RankPeriodLimits): number =>
+  limits[rank] ?? Infinity;
+
+const isAtPeriodLimit = (
+  teacher: TeacherWithAvailability,
+  limits: RankPeriodLimits,
+): boolean => {
+  const limit = getPeriodLimit(teacher.rank, limits);
+  return (teacher.total_periods_assigned ?? 0) >= limit;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 interface AssignTeachersModalProps {
   examRoomId: number;
   roomNumber: string;
@@ -27,9 +45,13 @@ interface AssignTeachersModalProps {
   examSession: ExamSession;
   examTime?: { start: string; end: string };
   roomCardData?: any;
+  /** Rank period limits configured by the user on the parent page */
+  rankLimits: RankPeriodLimits;
   onClose: () => void;
   onSuccess: () => void;
 }
+
+// ─── Teacher selector ─────────────────────────────────────────────────────────
 
 const TeacherSelector = ({
   teachers,
@@ -37,12 +59,14 @@ const TeacherSelector = ({
   disabledId,
   onSelect,
   roleLabel,
+  rankLimits,
 }: {
   teachers: TeacherWithAvailability[];
   selectedId: number | null;
-  disabledId: number | null; // teacher selected in the OTHER role
+  disabledId: number | null;
   onSelect: (teacherId: number) => void;
   roleLabel: string;
+  rankLimits: RankPeriodLimits;
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -76,7 +100,9 @@ const TeacherSelector = ({
             const isSelected = selectedId === teacher.teacher_id;
             const isAssignedOtherRole = disabledId === teacher.teacher_id;
             const isBusy = !teacher.availability.is_available;
-            const isDisabled = isBusy || isAssignedOtherRole;
+            const isOverLimit = isAtPeriodLimit(teacher, rankLimits);
+            const limit = getPeriodLimit(teacher.rank, rankLimits);
+            const isDisabled = isBusy || isAssignedOtherRole || isOverLimit;
 
             let conflictLabel: string | null = null;
             if (isAssignedOtherRole) {
@@ -86,6 +112,8 @@ const TeacherSelector = ({
                   : "Selected as Supervisor";
             } else if (isBusy) {
               conflictLabel = "Already assigned today";
+            } else if (isOverLimit) {
+              conflictLabel = `Limit reached (${limit} exams)`;
             }
 
             return (
@@ -114,14 +142,27 @@ const TeacherSelector = ({
                   <div className="flex gap-2 flex-wrap">
                     <Badge
                       variant="secondary"
-                      className="text-[10px] h-5 px-1.5 font-normal bg-gray-100 text-gray-600 border-gray-200"
+                      className={`text-[10px] h-5 px-1.5 font-normal border
+                        ${
+                          isOverLimit
+                            ? "bg-red-100 text-red-700 border-red-200"
+                            : "bg-gray-100 text-gray-600 border-gray-200"
+                        }`}
                     >
-                      {teacher.total_periods_assigned || 0} exams
+                      {limit === Infinity
+                        ? `${teacher.total_periods_assigned ?? 0} exams`
+                        : `${teacher.total_periods_assigned ?? 0}/${limit} exams`}
                     </Badge>
+
                     {conflictLabel && (
                       <Badge
                         variant="secondary"
-                        className="text-[10px] h-5 px-1.5 font-normal bg-orange-100 text-orange-700 border-orange-200"
+                        className={`text-[10px] h-5 px-1.5 font-normal border
+                          ${
+                            isOverLimit && !isBusy && !isAssignedOtherRole
+                              ? "bg-red-100 text-red-700 border-red-200"
+                              : "bg-orange-100 text-orange-700 border-orange-200"
+                          }`}
                       >
                         {conflictLabel}
                       </Badge>
@@ -131,8 +172,11 @@ const TeacherSelector = ({
 
                 <div
                   className={`h-8 w-8 rounded-full flex items-center justify-center transition-all
-                  ${isSelected ? "bg-primary text-primary-foreground shadow-sm" : "bg-transparent text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"}
-                `}
+                  ${
+                    isSelected
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "bg-transparent text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"
+                  }`}
                 >
                   {isSelected ? (
                     <CheckCircle2 className="h-5 w-5" />
@@ -151,12 +195,15 @@ const TeacherSelector = ({
   );
 };
 
+// ─── Main modal ───────────────────────────────────────────────────────────────
+
 const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
   examRoomId,
   roomNumber,
   examDate,
   examSession,
   examTime,
+  rankLimits,
   onClose,
   onSuccess,
 }) => {
@@ -233,26 +280,19 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
     }
   };
 
-  // When selecting a supervisor, clear assistant if it's the same teacher
   const handleSelectSupervisor = (teacherId: number) => {
     setSelectedSupervisorId(teacherId);
-    if (selectedAssistantId === teacherId) {
-      setSelectedAssistantId(null);
-    }
+    if (selectedAssistantId === teacherId) setSelectedAssistantId(null);
   };
 
-  // When selecting an assistant, clear supervisor if it's the same teacher
   const handleSelectAssistant = (teacherId: number) => {
     setSelectedAssistantId(teacherId);
-    if (selectedSupervisorId === teacherId) {
-      setSelectedSupervisorId(null);
-    }
+    if (selectedSupervisorId === teacherId) setSelectedSupervisorId(null);
   };
 
   const handleSaveChanges = async () => {
     if (!selectedSupervisorId && !selectedAssistantId) return;
 
-    // Final guard: same teacher in both roles
     if (
       selectedSupervisorId &&
       selectedAssistantId &&
@@ -260,6 +300,26 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
     ) {
       setError(
         "The same teacher cannot be assigned as both Supervisor and Assistant.",
+      );
+      return;
+    }
+
+    const supervisorTeacher = supervisors.find(
+      (t) => t.teacher_id === selectedSupervisorId,
+    );
+    const assistantTeacher = assistants.find(
+      (t) => t.teacher_id === selectedAssistantId,
+    );
+
+    if (supervisorTeacher && isAtPeriodLimit(supervisorTeacher, rankLimits)) {
+      setError(
+        `${supervisorTeacher.name} has reached the maximum exam period limit for their rank (${getPeriodLimit(supervisorTeacher.rank, rankLimits)}).`,
+      );
+      return;
+    }
+    if (assistantTeacher && isAtPeriodLimit(assistantTeacher, rankLimits)) {
+      setError(
+        `${assistantTeacher.name} has reached the maximum exam period limit for their rank (${getPeriodLimit(assistantTeacher.rank, rankLimits)}).`,
       );
       return;
     }
@@ -380,6 +440,26 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
           </Button>
         </div>
 
+        {/* Active period limits summary */}
+        {Object.keys(rankLimits).length > 0 && (
+          <div className="px-6 pt-4 pb-0">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground border rounded-md px-3 py-2 bg-gray-50">
+              <span className="font-medium text-gray-600 mr-1">
+                Period limits:
+              </span>
+              {Object.entries(rankLimits).map(([rank, limit]) => (
+                <span
+                  key={rank}
+                  className="after:content-['·'] after:mx-1.5 last:after:content-['']"
+                >
+                  <span className="font-medium text-gray-700">{rank}</span> —{" "}
+                  {limit}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Scrollable Content */}
         <div className="p-6 overflow-y-auto flex-1">
           {error && (
@@ -405,14 +485,12 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
             {/* SUPERVISOR SECTION */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                    Supervisor
-                    {status?.hasSupervisor && (
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                    )}
-                  </h3>
-                </div>
+                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                  Supervisor
+                  {status?.hasSupervisor && (
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  )}
+                </h3>
                 {status?.hasSupervisor && (
                   <Button
                     variant="destructive"
@@ -432,6 +510,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                   selectedId={selectedSupervisorId}
                   disabledId={selectedAssistantId}
                   onSelect={handleSelectSupervisor}
+                  rankLimits={rankLimits}
                 />
               ) : (
                 <div className="p-4 rounded-lg bg-green-50 border border-green-100 flex items-start gap-3">
@@ -453,14 +532,12 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
             {/* ASSISTANT SECTION */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                    Assistant
-                    {status?.hasAssistant && (
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                    )}
-                  </h3>
-                </div>
+                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                  Assistant
+                  {status?.hasAssistant && (
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  )}
+                </h3>
                 {status?.hasAssistant && (
                   <Button
                     variant="destructive"
@@ -480,6 +557,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
                   selectedId={selectedAssistantId}
                   disabledId={selectedSupervisorId}
                   onSelect={handleSelectAssistant}
+                  rankLimits={rankLimits}
                 />
               ) : (
                 <div className="p-4 rounded-lg bg-green-50 border border-green-100 flex items-start gap-3">
