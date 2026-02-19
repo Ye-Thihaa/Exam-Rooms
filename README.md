@@ -104,6 +104,30 @@ No Conflict     Conflict Found
 
 ---
 
+## 🧩 Handling Retake / Cross-Semester Seating
+
+When students **retake** exams across semesters, matching seats by only `year/semester/program/specialization` can place them into dates they do not actually attend. A reliable fix is to **separate “room assignment” from “exam session participation.”**
+
+### ✅ Recommended data model adjustment
+
+1. **Create an exam session table** (one row per actual date/time):
+   - `exam_session` → `{ session_id, exam_id, exam_date, start_time, end_time, room_id }`
+2. **Create a student–session mapping**:
+   - `student_exam_session` → `{ student_id, session_id, attempt_type }`
+     - `attempt_type`: `regular | retake`
+
+This allows you to keep rooms “available for a schedule range” while still generating **seats for only the students who truly attend each date**.
+
+### ✅ Seating generation logic
+
+1. Find all sessions in a room on a date.
+2. For each session, pull students from `student_exam_session`.
+3. Generate seating only for those students (including retake cases).
+
+This avoids the edge case where a **retaker (Sem A) is assigned into a Sem B date** simply because the group rules matched.
+
+---
+
 ## 🎯 Benefits
 
 | Benefit | Description |
