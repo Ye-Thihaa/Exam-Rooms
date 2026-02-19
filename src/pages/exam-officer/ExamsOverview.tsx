@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import DashboardLayout from "@/components/layouts/DashboardLayout";
 import PageHeader from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Calendar,
   Clock,
@@ -12,8 +13,12 @@ import {
   ChevronRight,
   Sun,
   Sunset,
+  Settings,
+  RotateCcw,
 } from "lucide-react";
-import AssignTeachersModal from "@/components/AssignTeachersModal";
+import AssignTeachersModal, {
+  type RankPeriodLimits,
+} from "@/components/AssignTeachersModal";
 import { teacherAssignmentQueries } from "@/services/teacherassignmentQueries";
 import {
   examRoomLinkQueries,
@@ -22,6 +27,196 @@ import {
 } from "@/services/examRoomLinkQueries";
 import type { Exam } from "@/services/examQueries";
 import type { ExamSession } from "@/services/teacherAssignmentTypes";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Default limits
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DEFAULT_RANK_LIMITS: RankPeriodLimits = {
+  "Associate Professor": 5,
+  Lecturer: 7,
+  "Assistant Lecturer": 8,
+  Tutor: 10,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Period-limits settings modal
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PeriodLimitsModal: React.FC<{
+  limits: RankPeriodLimits;
+  onSave: (limits: RankPeriodLimits) => void;
+  onClose: () => void;
+}> = ({ limits, onSave, onClose }) => {
+  // Use string values so the input is fully editable (empty string allowed while typing)
+  const [draft, setDraft] = useState<Record<string, string>>(() =>
+    Object.fromEntries(Object.entries(limits).map(([k, v]) => [k, String(v)])),
+  );
+  const [newRank, setNewRank] = useState("");
+  const [newLimit, setNewLimit] = useState<string>("1");
+  const [addError, setAddError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const handleChange = (rank: string, raw: string) => {
+    // Allow empty or any numeric string while the user is editing
+    if (raw === "" || /^\d+$/.test(raw)) {
+      setDraft((prev) => ({ ...prev, [rank]: raw }));
+    }
+  };
+
+  const handleSave = () => {
+    // Validate all entries before committing
+    const invalid = Object.entries(draft).find(
+      ([, v]) => v === "" || isNaN(Number(v)) || Number(v) < 1,
+    );
+    if (invalid) {
+      setSaveError(`"${invalid[0]}" must have a limit of at least 1.`);
+      return;
+    }
+    const result: RankPeriodLimits = Object.fromEntries(
+      Object.entries(draft).map(([k, v]) => [k, Number(v)]),
+    );
+    onSave(result);
+    onClose();
+  };
+
+  const handleAddRank = () => {
+    setAddError(null);
+    const rankTrimmed = newRank.trim();
+    if (!rankTrimmed) {
+      setAddError("Rank name cannot be empty.");
+      return;
+    }
+    if (draft[rankTrimmed] !== undefined) {
+      setAddError(`"${rankTrimmed}" already exists.`);
+      return;
+    }
+    const parsed = Number(newLimit);
+    if (newLimit === "" || isNaN(parsed) || parsed < 1) {
+      setAddError("Limit must be at least 1.");
+      return;
+    }
+    setDraft((prev) => ({ ...prev, [rankTrimmed]: newLimit }));
+    setNewRank("");
+    setNewLimit("1");
+  };
+
+  const handleReset = () =>
+    setDraft(
+      Object.fromEntries(
+        Object.entries(DEFAULT_RANK_LIMITS).map(([k, v]) => [k, String(v)]),
+      ),
+    );
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+      <div className="bg-white border rounded-xl max-w-md w-full shadow-2xl flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <div className="flex items-center gap-2">
+            <Settings className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold text-gray-900">
+              Period Limits per Rank
+            </h2>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {/* Body */}
+        <div className="p-6 space-y-4 overflow-y-auto max-h-[60vh]">
+          <p className="text-sm text-muted-foreground">
+            Set the maximum number of exam periods each rank may be assigned.
+          </p>
+
+          {/* Existing ranks — no delete, just editable inputs */}
+          <div className="space-y-2">
+            {Object.entries(draft).map(([rank, value]) => (
+              <div
+                key={rank}
+                className="flex items-center gap-3 p-3 border rounded-lg bg-gray-50"
+              >
+                <span className="flex-1 text-sm font-medium text-gray-800 truncate">
+                  {rank}
+                </span>
+                <Input
+                  type="number"
+                  min={1}
+                  value={value}
+                  onChange={(e) => handleChange(rank, e.target.value)}
+                  className={`w-24 text-center h-8 text-sm ${
+                    value === "" || Number(value) < 1
+                      ? "border-destructive"
+                      : ""
+                  }`}
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* Add new rank */}
+          <div className="border-t pt-4 space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Add rank
+            </p>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Rank name"
+                value={newRank}
+                onChange={(e) => {
+                  setNewRank(e.target.value);
+                  setAddError(null);
+                }}
+                className="flex-1 h-9 text-sm"
+              />
+              <Input
+                type="number"
+                min={1}
+                placeholder="Limit"
+                value={newLimit}
+                onChange={(e) => {
+                  setNewLimit(e.target.value);
+                  setAddError(null);
+                }}
+                className="w-24 h-9 text-sm text-center"
+              />
+              <Button size="sm" className="h-9 px-4" onClick={handleAddRank}>
+                Add
+              </Button>
+            </div>
+            {addError && <p className="text-xs text-destructive">{addError}</p>}
+          </div>
+
+          {saveError && (
+            <p className="text-xs text-destructive pt-1">{saveError}</p>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t flex items-center justify-between gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground gap-1"
+            onClick={handleReset}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Reset to defaults
+          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleSave}>
+              Save
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -60,7 +255,7 @@ const SessionBadge: React.FC<{ session: ExamSession }> = ({ session }) => (
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Exam row (inside detail modal)
+// Exam row
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ExamRow: React.FC<{ exam: Exam; badge: "primary" | "secondary" }> = ({
@@ -97,7 +292,7 @@ const ExamRow: React.FC<{ exam: Exam; badge: "primary" | "secondary" }> = ({
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Room detail modal (standalone — click on card body)
+// Room detail modal
 // ─────────────────────────────────────────────────────────────────────────────
 
 const RoomDetailModal: React.FC<{
@@ -291,7 +486,6 @@ const RoomCard: React.FC<{
 // Main page
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Full room context passed to AssignTeachersModal — same shape as RoomCardData */
 type AssignmentTarget = RoomCardData;
 
 const ExamsOverview: React.FC = () => {
@@ -309,6 +503,11 @@ const ExamsOverview: React.FC = () => {
   const [assignmentCounts, setAssignmentCounts] = useState<
     Record<string, number>
   >({});
+
+  const [rankLimits, setRankLimits] = useState<RankPeriodLimits>({
+    ...DEFAULT_RANK_LIMITS,
+  });
+  const [showLimitsModal, setShowLimitsModal] = useState(false);
 
   const loadAssignmentCounts = async () => {
     try {
@@ -352,7 +551,6 @@ const ExamsOverview: React.FC = () => {
 
   const handleAssignClick = (e: React.MouseEvent, room: RoomCardData) => {
     e.stopPropagation();
-    // Pass ALL room context so AssignTeachersModal can render the info card
     setAssignTarget(room);
     setShowAssignModal(true);
   };
@@ -395,17 +593,34 @@ const ExamsOverview: React.FC = () => {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 mb-4">
-        {(["all", "scheduled", "completed"] as const).map((s) => (
-          <Button
-            key={s}
-            variant={statusFilter === s ? "default" : "outline"}
-            size="sm"
-            onClick={() => setStatusFilter(s)}
-          >
-            {s.charAt(0).toUpperCase() + s.slice(1)}
-          </Button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex flex-wrap gap-2">
+          {(["all", "scheduled", "completed"] as const).map((s) => (
+            <Button
+              key={s}
+              variant={statusFilter === s ? "default" : "outline"}
+              size="sm"
+              onClick={() => setStatusFilter(s)}
+            >
+              {s.charAt(0).toUpperCase() + s.slice(1)}
+            </Button>
+          ))}
+        </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          onClick={() => setShowLimitsModal(true)}
+        >
+          <Settings className="h-4 w-4" />
+          Period Limits
+          {Object.keys(rankLimits).length > 0 && (
+            <span className="ml-1 inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold">
+              {Object.keys(rankLimits).length}
+            </span>
+          )}
+        </Button>
       </div>
 
       <div className="mb-6">
@@ -499,6 +714,7 @@ const ExamsOverview: React.FC = () => {
           examSession={assignTarget.examSession}
           examTime={assignTarget.examTime}
           roomCardData={assignTarget}
+          rankLimits={rankLimits}
           onClose={() => {
             setShowAssignModal(false);
             setAssignTarget(null);
@@ -506,6 +722,14 @@ const ExamsOverview: React.FC = () => {
           onSuccess={async () => {
             await loadAssignmentCounts();
           }}
+        />
+      )}
+
+      {showLimitsModal && (
+        <PeriodLimitsModal
+          limits={rankLimits}
+          onSave={setRankLimits}
+          onClose={() => setShowLimitsModal(false)}
         />
       )}
     </DashboardLayout>
