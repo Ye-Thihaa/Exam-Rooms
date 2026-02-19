@@ -166,11 +166,26 @@ const SidebarNav: React.FC<SidebarNavProps> = ({ role, onNavigate }) => {
   const { pathname } = useLocation();
   const navRef = useRef<HTMLElement>(null);
 
-  // Track which sections are open — default all open
   const sections = navSections[role] || [];
+
+  // Only open the section that contains the current route on first render
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(sections.map((s) => [s.title, true])),
+    () =>
+      Object.fromEntries(
+        sections.map((s) => [s.title, s.items.includes(pathname)]),
+      ),
   );
+
+  // When navigating to a new route, open its section — but leave others as-is
+  const prevPathnameRef = useRef(pathname);
+  useEffect(() => {
+    if (prevPathnameRef.current === pathname) return;
+    prevPathnameRef.current = pathname;
+    const activeSection = sections.find((s) => s.items.includes(pathname));
+    if (activeSection) {
+      setOpenSections((prev) => ({ ...prev, [activeSection.title]: true }));
+    }
+  }, [pathname]);
 
   useEffect(() => {
     const el = navRef.current;
