@@ -22,15 +22,24 @@ import type {
   TeacherWithAvailability,
 } from "@/services/teacherAssignmentTypes";
 
-// ─── Pairing constants ────────────────────────────────────────────────────────
+// ─── Rank order (higher = more senior) ───────────────────────────────────────
 
-const SUPERVISOR_RANK = "Associate Professor";
+const RANK_ORDER: Record<string, number> = {
+  "Associate Professor": 4,
+  "Lecturer": 3,
+  "Associate Lecturer": 2,
+  "Tutor": 1,
+};
+
+// ─── Pairing constants (strictly higher → lower rank) ────────────────────────
 
 const SUPERVISOR_ASSISTANT_PAIRS: Array<[string, string]> = [
-  [SUPERVISOR_RANK, "Lecturer"],
-  [SUPERVISOR_RANK, "Assistant Lecturer"],
-  [SUPERVISOR_RANK, "Tutor"],
-  [SUPERVISOR_RANK, "Associate Professor"],
+  ["Associate Professor", "Lecturer"],
+  ["Associate Professor", "Associate Lecturer"],
+  ["Associate Professor", "Tutor"],
+  ["Lecturer", "Associate Lecturer"],
+  ["Lecturer", "Tutor"],
+  ["Associate Lecturer", "Tutor"],
 ];
 
 // ─── Algorithm helpers ────────────────────────────────────────────────────────
@@ -38,25 +47,16 @@ const SUPERVISOR_ASSISTANT_PAIRS: Array<[string, string]> = [
 type PairRecord = { supervisorId: number | null; assistantId: number | null };
 type PairHistory = Map<string, PairRecord[]>;
 
-/**
- * A teacher is eligible if:
- *  1. Available for the date (not already assigned elsewhere)
- *  2. Not already used in this bulk session (dayUsedIds)
- *  3. Their LIVE period count (mutated in-place as rooms are processed) is
- *     still below their rank limit.
- *
- * KEY: total_periods_assigned is mutated after each pick via
- * incrementPeriodCount(), so this check correctly enforces limits across
- * ALL rooms in the bulk run — not just within a single room's decision.
- */
 function isEligible(
   t: TeacherWithAvailability,
   limits: RankPeriodLimits,
   dayUsedIds: Set<number>,
+  blockedDeptIds: Set<number>,
 ): boolean {
   return (
     t.availability.is_available &&
     !dayUsedIds.has(t.teacher_id) &&
+    !blockedDeptIds.has(t.department_id ?? -1) &&
     (limits[t.rank] === undefined ||
       (t.total_periods_assigned ?? 0) < limits[t.rank])
   );
@@ -72,12 +72,6 @@ function lowestWorkload(
   );
 }
 
-/**
- * After picking a teacher, increment their period count in ALL pool arrays
- * that reference them (both supervisors and assistants pools, since APs appear
- * in both). This keeps the running total live so future room picks respect
- * the rank limit correctly.
- */
 function incrementPeriodCount(teacherId: number, ctx: BulkAssignContext): void {
   for (const t of ctx.supervisors) {
     if (t.teacher_id === teacherId) {
@@ -91,23 +85,37 @@ function incrementPeriodCount(teacherId: number, ctx: BulkAssignContext): void {
   }
 }
 
+function getBlockedDeptIds(room: RoomCardData): Set<number> {
+  const ids = new Set<number>();
+  for (const exam of room.primaryExams) {
+    if (exam.department_id != null) ids.add(exam.department_id);
+  }
+  for (const exam of room.secondaryExams) {
+    if (exam.department_id != null) ids.add(exam.department_id);
+  }
+  return ids;
+}
+
 function pickPairedTeachers(
   supervisors: TeacherWithAvailability[],
   assistants: TeacherWithAvailability[],
   limits: RankPeriodLimits,
   dayUsedIds: Set<number>,
+  blockedDeptIds: Set<number>,
   pastPairs: PairRecord[],
   pairTypeUsage: Map<string, number>,
 ): {
   supervisor: TeacherWithAvailability | null;
   assistant: TeacherWithAvailability | null;
 } {
-  // Only APs can supervise; live period count checked via isEligible
+  const VALID_SUP_RANKS = new Set(SUPERVISOR_ASSISTANT_PAIRS.map(([s]) => s));
+  const VALID_ASST_RANKS = new Set(SUPERVISOR_ASSISTANT_PAIRS.map(([, a]) => a));
+
   const eligibleSups = supervisors.filter(
-    (t) => t.rank === SUPERVISOR_RANK && isEligible(t, limits, dayUsedIds),
+    (t) => VALID_SUP_RANKS.has(t.rank) && isEligible(t, limits, dayUsedIds, blockedDeptIds),
   );
-  const eligibleAssts = assistants.filter((t) =>
-    isEligible(t, limits, dayUsedIds),
+  const eligibleAssts = assistants.filter(
+    (t) => VALID_ASST_RANKS.has(t.rank) && isEligible(t, limits, dayUsedIds, blockedDeptIds),
   );
 
   if (eligibleSups.length === 0) return { supervisor: null, assistant: null };
@@ -119,53 +127,105 @@ function pickPairedTeachers(
     pastPairs.map((p) => p.assistantId).filter(Boolean) as number[],
   );
 
-  // Build list of rank pairs that have at least one eligible assistant
-  const viablePairs: Array<{ key: string; asstRank: string; usage: number }> =
-    [];
-  for (const [, asstRank] of SUPERVISOR_ASSISTANT_PAIRS) {
-    const asstCandidates = eligibleAssts.filter((t) => t.rank === asstRank);
-    if (asstCandidates.length === 0) continue;
-    const key = `AP|${asstRank}`;
-    viablePairs.push({ key, asstRank, usage: pairTypeUsage.get(key) ?? 0 });
+  // Build viable pairs — strictly enforce supervisor rank > assistant rank
+  const viablePairs: Array<{
+    key: string;
+    supRank: string;
+    asstRank: string;
+    usage: number;
+  }> = [];
+  for (const [supRank, asstRank] of SUPERVISOR_ASSISTANT_PAIRS) {
+    const hasEligibleSup = eligibleSups.some((t) => t.rank === supRank);
+    const hasEligibleAsst = eligibleAssts.some(
+      (t) =>
+        t.rank === asstRank &&
+        (RANK_ORDER[t.rank] ?? 0) < (RANK_ORDER[supRank] ?? 0),
+    );
+    if (!hasEligibleSup || !hasEligibleAsst) continue;
+    const key = `${supRank}|${asstRank}`;
+    viablePairs.push({ key, supRank, asstRank, usage: pairTypeUsage.get(key) ?? 0 });
   }
 
   if (viablePairs.length === 0) {
-    // No eligible assistant of any rank — assign supervisor only
-    const supPool = eligibleSups.filter((t) => !pastSupIds.has(t.teacher_id));
+    // No strict lower-rank pair found — try AP+AP as last resort
+    const apSups = eligibleSups.filter((t) => t.rank === "Associate Professor");
+    if (apSups.length > 0) {
+      const supFresh = apSups.filter((t) => !pastSupIds.has(t.teacher_id));
+      const supervisor = lowestWorkload(supFresh.length > 0 ? supFresh : apSups);
+
+      const apAssts = assistants.filter(
+        (t) =>
+          t.rank === "Associate Professor" &&
+          t.teacher_id !== supervisor.teacher_id &&
+          isEligible(t, limits, dayUsedIds, blockedDeptIds),
+      );
+      if (apAssts.length > 0) {
+        const asstFresh = apAssts.filter((t) => !pastAsstIds.has(t.teacher_id));
+        return {
+          supervisor,
+          assistant: lowestWorkload(asstFresh.length > 0 ? asstFresh : apAssts),
+        };
+      }
+    }
+
+    // Truly no pair possible — supervisor only
+    const supFresh = eligibleSups.filter((t) => !pastSupIds.has(t.teacher_id));
     return {
-      supervisor: lowestWorkload(supPool.length > 0 ? supPool : eligibleSups),
+      supervisor: lowestWorkload(supFresh.length > 0 ? supFresh : eligibleSups),
       assistant: null,
     };
   }
 
-  // Pick the least-used pair type for fair distribution
+  // Pick least-used pair type for fair distribution
   const chosen = viablePairs.reduce((best, cur) =>
     cur.usage < best.usage ? cur : best,
   );
   pairTypeUsage.set(chosen.key, (pairTypeUsage.get(chosen.key) ?? 0) + 1);
 
-  // Prefer supervisors not recently used for this room group
-  const supFresh = eligibleSups.filter((t) => !pastSupIds.has(t.teacher_id));
-  const supervisor = lowestWorkload(
-    supFresh.length > 0 ? supFresh : eligibleSups,
-  );
+  // Pick supervisor of chosen rank, prefer fresh
+  const supOfRank = eligibleSups.filter((t) => t.rank === chosen.supRank);
+  const supFresh = supOfRank.filter((t) => !pastSupIds.has(t.teacher_id));
+  const supervisor = lowestWorkload(supFresh.length > 0 ? supFresh : supOfRank);
 
-  // Pick assistant of chosen rank, excluding the supervisor
+  // Pick assistant of chosen rank, strictly lower rank, excluding supervisor
   const asstOfRank = eligibleAssts
     .filter((t) => t.rank === chosen.asstRank)
-    .filter((t) => t.teacher_id !== supervisor.teacher_id);
+    .filter((t) => t.teacher_id !== supervisor.teacher_id)
+    .filter((t) => (RANK_ORDER[t.rank] ?? 0) < (RANK_ORDER[supervisor.rank] ?? 0));
 
   if (asstOfRank.length === 0) {
-    // Fallback: any eligible assistant
-    const anyAsst = eligibleAssts.filter(
-      (t) => t.teacher_id !== supervisor.teacher_id,
+    // Fallback 1: any eligible assistant with strictly lower rank
+    const anyLowerAsst = eligibleAssts.filter(
+      (t) =>
+        t.teacher_id !== supervisor.teacher_id &&
+        (RANK_ORDER[t.rank] ?? 0) < (RANK_ORDER[supervisor.rank] ?? 0),
     );
-    if (anyAsst.length === 0) return { supervisor, assistant: null };
-    const asstFresh = anyAsst.filter((t) => !pastAsstIds.has(t.teacher_id));
-    return {
-      supervisor,
-      assistant: lowestWorkload(asstFresh.length > 0 ? asstFresh : anyAsst),
-    };
+    if (anyLowerAsst.length > 0) {
+      const fresh = anyLowerAsst.filter((t) => !pastAsstIds.has(t.teacher_id));
+      return {
+        supervisor,
+        assistant: lowestWorkload(fresh.length > 0 ? fresh : anyLowerAsst),
+      };
+    }
+
+    // Fallback 2: AP+AP last resort
+    if (supervisor.rank === "Associate Professor") {
+      const apAssts = assistants.filter(
+        (t) =>
+          t.rank === "Associate Professor" &&
+          t.teacher_id !== supervisor.teacher_id &&
+          isEligible(t, limits, dayUsedIds, blockedDeptIds),
+      );
+      if (apAssts.length > 0) {
+        const fresh = apAssts.filter((t) => !pastAsstIds.has(t.teacher_id));
+        return {
+          supervisor,
+          assistant: lowestWorkload(fresh.length > 0 ? fresh : apAssts),
+        };
+      }
+    }
+
+    return { supervisor, assistant: null };
   }
 
   const asstFresh = asstOfRank.filter((t) => !pastAsstIds.has(t.teacher_id));
@@ -201,13 +261,7 @@ interface RoomPreview {
 
 type Phase = "calculating" | "preview" | "saving" | "done";
 
-// ─── Pure calculation (zero DB writes) ───────────────────────────────────────
-//
-// CRITICAL: after each teacher pick, call incrementPeriodCount() to update
-// their total_periods_assigned in the shared ctx pools. Every subsequent room
-// then sees the correct running total, so a rank limit (e.g. AP = 5) is
-// enforced across ALL rooms in the bulk run — not just per individual room.
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Pure calculation ─────────────────────────────────────────────────────────
 
 function calculateAssignments(
   rooms: RoomCardData[],
@@ -234,6 +288,7 @@ function calculateAssignments(
 
     const todayUsed = dayUsedIds.get(date)!;
     const pairTypeUsage = pairTypeUsageByDate.get(date)!;
+    const blockedDeptIds = getBlockedDeptIds(room);
 
     const resolved = teacherAssignmentQueries.resolveRoomLink(
       room.roomNumber,
@@ -277,13 +332,13 @@ function calculateAssignments(
       assistants,
       rankLimits,
       todayUsed,
+      blockedDeptIds,
       pastPairs,
       pairTypeUsage,
     );
 
     if (supervisor) {
       todayUsed.add(supervisor.teacher_id);
-      // ── Increment live count so future rooms respect the rank limit ──────
       incrementPeriodCount(supervisor.teacher_id, ctx);
       planned.push({
         examRoomId,
@@ -301,7 +356,6 @@ function calculateAssignments(
 
     if (assistant) {
       todayUsed.add(assistant.teacher_id);
-      // ── Increment live count so future rooms respect the rank limit ──────
       incrementPeriodCount(assistant.teacher_id, ctx);
       planned.push({
         examRoomId,
@@ -341,7 +395,7 @@ function calculateAssignments(
   return { previews, planned };
 }
 
-// ─── TeacherChip sub-component ────────────────────────────────────────────────
+// ─── TeacherChip ──────────────────────────────────────────────────────────────
 
 const TeacherChip: React.FC<{
   label: string;
@@ -406,12 +460,9 @@ const BulkAssignModal: React.FC<BulkAssignModalProps> = ({
   const [statusMsg, setStatusMsg] = useState("Pre-fetching data…");
   const [previews, setPreviews] = useState<RoomPreview[]>([]);
   const [planned, setPlanned] = useState<PlannedAssignment[]>([]);
-  const [saveResults, setSaveResults] = useState<
-    { roomKey: string; ok: boolean; msg?: string }[]
-  >([]);
+  const [saveResults, setSaveResults] = useState<{ roomKey: string; ok: boolean; msg?: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Phase 1: prefetch + calculate (pure, no DB writes)
   const calculate = useCallback(async () => {
     setPhase("calculating");
     setStatusMsg("Pre-fetching data from database…");
@@ -444,7 +495,6 @@ const BulkAssignModal: React.FC<BulkAssignModalProps> = ({
     calculate();
   }, []);
 
-  // Phase 3: write to DB
   const handleSave = async () => {
     setPhase("saving");
     setStatusMsg(`Saving ${planned.length} assignments…`);
@@ -494,8 +544,6 @@ const BulkAssignModal: React.FC<BulkAssignModalProps> = ({
     onSuccess();
   };
 
-  // ── Derived ────────────────────────────────────────────────────────────────
-
   const dates = [...new Set(rooms.map((r) => r.examDate))].sort();
   const previewsByDate = previews.reduce<Record<string, RoomPreview[]>>(
     (acc, pv) => {
@@ -509,14 +557,9 @@ const BulkAssignModal: React.FC<BulkAssignModalProps> = ({
 
   const assignableCount = previews.filter((p) => p.ok).length;
   const totalTeachers = planned.length;
-
-  // ── Rank limit summary for preview banner ─────────────────────────────────
-
   const rankLimitSummary = Object.entries(rankLimits)
     .map(([rank, limit]) => `${rank} (max ${limit})`)
     .join(" · ");
-
-  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -546,34 +589,20 @@ const BulkAssignModal: React.FC<BulkAssignModalProps> = ({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
-          {/* Calculating */}
-          {phase === "calculating" && (
+          {(phase === "calculating" || phase === "saving") && (
             <div className="flex flex-col items-center justify-center py-16 gap-4 text-muted-foreground">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
               <div className="text-center">
                 <p className="text-sm font-medium text-gray-700">{statusMsg}</p>
                 <p className="text-xs mt-1">
-                  This may take a moment for large schedules…
+                  {phase === "calculating"
+                    ? "This may take a moment for large schedules…"
+                    : `Writing ${totalTeachers} assignments to database…`}
                 </p>
               </div>
             </div>
           )}
 
-          {/* Saving */}
-          {phase === "saving" && (
-            <div className="flex flex-col items-center justify-center py-16 gap-4 text-muted-foreground">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <div className="text-center">
-                <p className="text-sm font-medium text-gray-700">{statusMsg}</p>
-                <p className="text-xs mt-1">
-                  Writing {totalTeachers} teacher assignment
-                  {totalTeachers !== 1 ? "s" : ""} to database…
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Preview */}
           {phase === "preview" && (
             <>
               <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-primary/5 border border-primary/15">
@@ -584,21 +613,16 @@ const BulkAssignModal: React.FC<BulkAssignModalProps> = ({
                     assigned
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {totalTeachers} teacher assignment
-                    {totalTeachers !== 1 ? "s" : ""} ready · Review below then
-                    click{" "}
+                    {totalTeachers} assignments ready · Review then click{" "}
                     <strong className="text-gray-700">Save to Database</strong>
                   </p>
                 </div>
               </div>
 
-              {/* Period limits banner */}
               {rankLimitSummary && (
                 <div className="px-4 py-2.5 rounded-lg bg-blue-50 border border-blue-100">
                   <p className="text-xs text-blue-700">
-                    <span className="font-semibold">
-                      Period limits enforced:
-                    </span>{" "}
+                    <span className="font-semibold">Period limits enforced:</span>{" "}
                     {rankLimitSummary}
                   </p>
                 </div>
@@ -686,7 +710,6 @@ const BulkAssignModal: React.FC<BulkAssignModalProps> = ({
             </>
           )}
 
-          {/* Done */}
           {phase === "done" && (
             <>
               <div
@@ -703,7 +726,9 @@ const BulkAssignModal: React.FC<BulkAssignModalProps> = ({
                 )}
                 <div>
                   <p
-                    className={`text-sm font-semibold ${error ? "text-amber-800" : "text-emerald-800"}`}
+                    className={`text-sm font-semibold ${
+                      error ? "text-amber-800" : "text-emerald-800"
+                    }`}
                   >
                     {error
                       ? "Save completed with errors"
@@ -750,7 +775,9 @@ const BulkAssignModal: React.FC<BulkAssignModalProps> = ({
                         return (
                           <div
                             key={pv.room.key}
-                            className={`px-4 py-3 flex items-start gap-3 ${sr?.ok ? "" : "bg-amber-50/40"}`}
+                            className={`px-4 py-3 flex items-start gap-3 ${
+                              sr?.ok ? "" : "bg-amber-50/40"
+                            }`}
                           >
                             {sr?.ok ? (
                               <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />

@@ -1,18 +1,18 @@
 export type TeacherRole = "Supervisor" | "Assistant";
 export type ExamSession = "Morning" | "Afternoon" | "Evening";
 
-// ✅ STRICTLY LIMITED TO YOUR 4 RANKS
 export type TeacherRank =
   | "Associate Professor"
   | "Lecturer"
   | "Associate Lecturer"
   | "Tutor";
 
-// ✅ Supervisor: Only Associate Professors
 export const SUPERVISOR_RANKS: TeacherRank[] = [
   "Associate Professor",
   "Lecturer",
+  "Associate Lecturer",
 ];
+
 export const ASSISTANT_RANKS: TeacherRank[] = [
   "Associate Professor",
   "Lecturer",
@@ -37,6 +37,7 @@ export interface Teacher {
   name: string;
   rank: TeacherRank;
   department: string;
+  department_id?: number; // ← ADD
   total_periods_assigned: number | null;
 }
 
@@ -54,34 +55,22 @@ export interface Exam {
   start_time: string | null;
   end_time: string | null;
   day_of_week: string | null;
+  department_id?: number; // ← ADD
 }
 
-// Helper function to check if a teacher can be assigned a specific role
 export function canTeacherHaveRole(
   teacherRank: TeacherRank,
   role: TeacherRole,
 ): boolean {
-  if (role === "Supervisor") {
-    return SUPERVISOR_RANKS.includes(teacherRank);
-  }
-  if (role === "Assistant") {
-    return ASSISTANT_RANKS.includes(teacherRank);
-  }
+  if (role === "Supervisor") return SUPERVISOR_RANKS.includes(teacherRank);
+  if (role === "Assistant") return ASSISTANT_RANKS.includes(teacherRank);
   return false;
 }
 
-// Helper function to get eligible roles for a teacher based on their rank
 export function getEligibleRoles(teacherRank: TeacherRank): TeacherRole[] {
   const roles: TeacherRole[] = [];
-
-  if (SUPERVISOR_RANKS.includes(teacherRank)) {
-    roles.push("Supervisor");
-  }
-
-  if (ASSISTANT_RANKS.includes(teacherRank)) {
-    roles.push("Assistant");
-  }
-
+  if (SUPERVISOR_RANKS.includes(teacherRank)) roles.push("Supervisor");
+  if (ASSISTANT_RANKS.includes(teacherRank)) roles.push("Assistant");
   return roles;
 }
 
@@ -94,16 +83,11 @@ export interface TeacherWithCapability extends Teacher {
 export function enrichTeacherWithCapability(
   teacher: Teacher,
 ): TeacherWithCapability {
-  // Cast rank safely to ensure it matches the type
   const rank = teacher.rank as TeacherRank;
-
-  const canBeSupervisor = SUPERVISOR_RANKS.includes(rank);
-  const canBeAssistant = ASSISTANT_RANKS.includes(rank);
-
   return {
     ...teacher,
-    canBeSupervisor,
-    canBeAssistant,
+    canBeSupervisor: SUPERVISOR_RANKS.includes(rank),
+    canBeAssistant: ASSISTANT_RANKS.includes(rank),
     eligibleRoles: getEligibleRoles(rank),
   };
 }
@@ -191,7 +175,6 @@ export function getSessionTimeRange(
       return { start: "08:00", end: "12:00" };
     case "Afternoon":
       return { start: "13:00", end: "17:00" };
-
     default:
       return null;
   }

@@ -14,6 +14,7 @@ export interface Exam {
   start_time: string;
   end_time: string;
   day_of_week: string;
+    department_id?: number; 
 }
 
 export const examQueries = {

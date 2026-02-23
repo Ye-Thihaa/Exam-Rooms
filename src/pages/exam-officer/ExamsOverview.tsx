@@ -63,13 +63,99 @@ const DEFAULT_RANK_LIMITS: RankPeriodLimits = {
   Tutor: 10,
 };
 
-const SUPERVISOR_RANK = "Associate Professor";
+const RANK_ORDER: Record<string, number> = {
+  "Associate Professor": 4,
+  "Lecturer": 3,
+  "Associate Lecturer": 2,
+  "Tutor": 1,
+};
 
 const SUPERVISOR_ASSISTANT_PAIRS: Array<[string, string]> = [
-  [SUPERVISOR_RANK, "Lecturer"],
-  [SUPERVISOR_RANK, "Assistant Lecturer"],
-  [SUPERVISOR_RANK, "Tutor"],
+  ["Associate Professor", "Lecturer"],
+  ["Associate Professor", "Associate Lecturer"],
+  ["Associate Professor", "Tutor"],
+  ["Lecturer", "Associate Lecturer"],
+  ["Lecturer", "Tutor"],
+  ["Associate Lecturer", "Tutor"],
 ];
+
+function pickPairedTeachers(
+  supervisors: TeacherWithAvailability[],
+  assistants: TeacherWithAvailability[],
+  limits: RankPeriodLimits,
+  dayUsedIds: Set<number>,
+  pastPairs: PairRecord[],
+  pairTypeUsage: Map<string, number>,
+  blockedDeptIds: Set<number> = new Set(),
+): {
+  supervisor: TeacherWithAvailability | null;
+  assistant: TeacherWithAvailability | null;
+} {
+  const VALID_SUP_RANKS = new Set(SUPERVISOR_ASSISTANT_PAIRS.map(([s]) => s));
+  const VALID_ASST_RANKS = new Set(SUPERVISOR_ASSISTANT_PAIRS.map(([, a]) => a));
+
+  const eligibleSups = supervisors.filter(
+    (t) => VALID_SUP_RANKS.has(t.rank) && isEligible(t, limits, dayUsedIds, blockedDeptIds),
+  );
+  const eligibleAssts = assistants.filter(
+    (t) => VALID_ASST_RANKS.has(t.rank) && isEligible(t, limits, dayUsedIds, blockedDeptIds),
+  );
+
+  if (eligibleSups.length === 0) return { supervisor: null, assistant: null };
+
+  const pastSupIds = new Set(pastPairs.map((p) => p.supervisorId).filter(Boolean) as number[]);
+  const pastAsstIds = new Set(pastPairs.map((p) => p.assistantId).filter(Boolean) as number[]);
+
+  // Build viable pairs — strictly enforce supervisor rank > assistant rank
+  const viablePairs: Array<{ key: string; supRank: string; asstRank: string; usage: number }> = [];
+  for (const [supRank, asstRank] of SUPERVISOR_ASSISTANT_PAIRS) {
+    const hasEligibleSup = eligibleSups.some((t) => t.rank === supRank);
+    const hasEligibleAsst = eligibleAssts.some(
+      (t) => t.rank === asstRank && (RANK_ORDER[t.rank] ?? 0) < (RANK_ORDER[supRank] ?? 0),
+    );
+    if (!hasEligibleSup || !hasEligibleAsst) continue;
+    const key = `${supRank}|${asstRank}`;
+    viablePairs.push({ key, supRank, asstRank, usage: pairTypeUsage.get(key) ?? 0 });
+  }
+
+  if (viablePairs.length === 0) {
+    // No valid pair found — assign supervisor only
+    const supFresh = eligibleSups.filter((t) => !pastSupIds.has(t.teacher_id));
+    return {
+      supervisor: lowestWorkload(supFresh.length > 0 ? supFresh : eligibleSups),
+      assistant: null,
+    };
+  }
+
+  // Pick least-used pair type for fair distribution
+  const chosen = viablePairs.reduce((best, cur) => cur.usage < best.usage ? cur : best);
+  pairTypeUsage.set(chosen.key, (pairTypeUsage.get(chosen.key) ?? 0) + 1);
+
+  // Pick supervisor of chosen rank, prefer fresh
+  const supOfRank = eligibleSups.filter((t) => t.rank === chosen.supRank);
+  const supFresh = supOfRank.filter((t) => !pastSupIds.has(t.teacher_id));
+  const supervisor = lowestWorkload(supFresh.length > 0 ? supFresh : supOfRank);
+
+  // Pick assistant — must be strictly lower rank than supervisor
+  const asstOfRank = eligibleAssts
+    .filter((t) => t.rank === chosen.asstRank)
+    .filter((t) => t.teacher_id !== supervisor.teacher_id)
+    .filter((t) => (RANK_ORDER[t.rank] ?? 0) < (RANK_ORDER[supervisor.rank] ?? 0));
+
+  if (asstOfRank.length === 0) {
+    // Fallback: any eligible assistant with strictly lower rank
+    const anyAsst = eligibleAssts.filter(
+      (t) => t.teacher_id !== supervisor.teacher_id &&
+             (RANK_ORDER[t.rank] ?? 0) < (RANK_ORDER[supervisor.rank] ?? 0),
+    );
+    if (anyAsst.length === 0) return { supervisor, assistant: null };
+    const asstFresh = anyAsst.filter((t) => !pastAsstIds.has(t.teacher_id));
+    return { supervisor, assistant: lowestWorkload(asstFresh.length > 0 ? asstFresh : anyAsst) };
+  }
+
+  const asstFresh = asstOfRank.filter((t) => !pastAsstIds.has(t.teacher_id));
+  return { supervisor, assistant: lowestWorkload(asstFresh.length > 0 ? asstFresh : asstOfRank) };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -154,7 +240,7 @@ async function fetchAllStandbyAssignments(): Promise<StandbyAssignment[]> {
   const { data, error } = await supabase
     .from("teacher_assignment")
     .select(
-      `exam_date, teacher:teacher_id (teacher_id, name, rank, department)`,
+      `exam_date, teacher:teacher_id (teacher_id, name, rank, department_id)`,
     )
     .eq("role", "Standby")
     .is("exam_room_id", null)
@@ -178,7 +264,7 @@ async function fetchStandbyByDate(
   const { data, error } = await supabase
     .from("teacher_assignment")
     .select(
-      `exam_date, teacher:teacher_id (teacher_id, name, rank, department)`,
+      `exam_date, teacher:teacher_id (teacher_id, name, rank, department_id)`,
     )
     .eq("role", "Standby")
     .eq("exam_date", examDate)
@@ -190,7 +276,7 @@ async function fetchStandbyByDate(
     teacherId: row.teacher?.teacher_id,
     teacherName: row.teacher?.name ?? "Unknown",
     teacherRank: row.teacher?.rank ?? "",
-    teacherDepartment: row.teacher?.department ?? "",
+    teacherDepartment: row.teacher?.department_id?.toString() ?? "",
     examDate: row.exam_date,
   }));
 }
@@ -232,7 +318,7 @@ async function fetchAvailableTeachersForDate(
 ): Promise<TeacherWithAvailability[]> {
   const { data: teachers, error: tErr } = await supabase
     .from("teacher")
-    .select("teacher_id, name, rank, department, total_periods_assigned")
+    .select("teacher_id, name, rank, department_id, total_periods_assigned")
     .order("name");
   if (tErr) throw tErr;
 
@@ -268,10 +354,12 @@ function isEligible(
   t: TeacherWithAvailability,
   limits: RankPeriodLimits,
   dayUsedIds: Set<number>,
+  blockedDeptIds: Set<number> = new Set(),  // add this
 ): boolean {
   return (
     t.availability.is_available &&
     !dayUsedIds.has(t.teacher_id) &&
+    !blockedDeptIds.has(t.department_id ?? -1) &&  // add this
     (limits[t.rank] === undefined ||
       (t.total_periods_assigned ?? 0) < limits[t.rank])
   );
@@ -298,94 +386,7 @@ function incrementPeriodCount(teacherId: number, ctx: BulkAssignContext): void {
   }
 }
 
-function pickPairedTeachers(
-  supervisors: TeacherWithAvailability[],
-  assistants: TeacherWithAvailability[],
-  limits: RankPeriodLimits,
-  dayUsedIds: Set<number>,
-  pastPairs: PairRecord[],
-  pairTypeUsage: Map<string, number>,
-  apApAllowed: boolean,
-): {
-  supervisor: TeacherWithAvailability | null;
-  assistant: TeacherWithAvailability | null;
-} {
-  const eligibleSups = supervisors.filter(
-    (t) => t.rank === SUPERVISOR_RANK && isEligible(t, limits, dayUsedIds),
-  );
-  const eligibleAssts = assistants.filter(
-    (t) => isEligible(t, limits, dayUsedIds) && t.rank !== SUPERVISOR_RANK,
-  );
 
-  if (eligibleSups.length === 0) return { supervisor: null, assistant: null };
-
-  const pastSupIds = new Set(
-    pastPairs.map((p) => p.supervisorId).filter(Boolean) as number[],
-  );
-  const pastAsstIds = new Set(
-    pastPairs.map((p) => p.assistantId).filter(Boolean) as number[],
-  );
-
-  const supFresh = eligibleSups.filter((t) => !pastSupIds.has(t.teacher_id));
-  const supervisor = lowestWorkload(
-    supFresh.length > 0 ? supFresh : eligibleSups,
-  );
-
-  function tryApAssistant(): TeacherWithAvailability | null {
-    if (!apApAllowed) return null;
-    const apAssts = assistants.filter(
-      (t) =>
-        t.rank === SUPERVISOR_RANK &&
-        isEligible(t, limits, dayUsedIds) &&
-        t.teacher_id !== supervisor.teacher_id,
-    );
-    if (apAssts.length === 0) return null;
-    const apFresh = apAssts.filter((t) => !pastAsstIds.has(t.teacher_id));
-    return lowestWorkload(apFresh.length > 0 ? apFresh : apAssts);
-  }
-
-  const viablePairs: Array<{ key: string; asstRank: string; usage: number }> =
-    [];
-  for (const [, asstRank] of SUPERVISOR_ASSISTANT_PAIRS) {
-    if (eligibleAssts.some((t) => t.rank === asstRank)) {
-      const key = `AP|${asstRank}`;
-      viablePairs.push({ key, asstRank, usage: pairTypeUsage.get(key) ?? 0 });
-    }
-  }
-
-  if (viablePairs.length === 0) {
-    return { supervisor, assistant: tryApAssistant() };
-  }
-
-  const chosen = viablePairs.reduce((best, cur) =>
-    cur.usage < best.usage ? cur : best,
-  );
-  pairTypeUsage.set(chosen.key, (pairTypeUsage.get(chosen.key) ?? 0) + 1);
-
-  const asstOfRank = eligibleAssts
-    .filter((t) => t.rank === chosen.asstRank)
-    .filter((t) => t.teacher_id !== supervisor.teacher_id);
-
-  if (asstOfRank.length === 0) {
-    const anyAsst = eligibleAssts.filter(
-      (t) => t.teacher_id !== supervisor.teacher_id,
-    );
-    if (anyAsst.length > 0) {
-      const asstFresh = anyAsst.filter((t) => !pastAsstIds.has(t.teacher_id));
-      return {
-        supervisor,
-        assistant: lowestWorkload(asstFresh.length > 0 ? asstFresh : anyAsst),
-      };
-    }
-    return { supervisor, assistant: tryApAssistant() };
-  }
-
-  const asstFresh = asstOfRank.filter((t) => !pastAsstIds.has(t.teacher_id));
-  return {
-    supervisor,
-    assistant: lowestWorkload(asstFresh.length > 0 ? asstFresh : asstOfRank),
-  };
-}
 
 function calculateAssignments(
   rooms: RoomCardData[],
@@ -454,24 +455,23 @@ function calculateAssignments(
       ctx,
       todayUsed,
     );
-
+    const blockedDeptIds = new Set<number>([
+  ...room.primaryExams.map((e: any) => e.department_id).filter(Boolean),
+  ...room.secondaryExams.map((e: any) => e.department_id).filter(Boolean),
+]);
     const historyKey = room.primaryGroupLabel || room.roomNumber;
     const pastPairs = pairHistory.get(historyKey) ?? [];
 
     const windowKey = getWindowKey(date);
     const apApAllowed = (apApQuotaByWindow.get(windowKey) ?? 0) < 1;
 
-    const { supervisor, assistant } = pickPairedTeachers(
-      supervisors,
-      assistants,
-      rankLimits,
-      todayUsed,
-      pastPairs,
-      pairTypeUsage,
-      apApAllowed,
-    );
+    // ✅ Correct — matches the function signature
+const { supervisor, assistant } = pickPairedTeachers(
+  supervisors, assistants, rankLimits,
+  todayUsed, pastPairs, pairTypeUsage, blockedDeptIds,
+);
 
-    if (supervisor && assistant && assistant.rank === SUPERVISOR_RANK) {
+    if (supervisor && assistant && assistant.rank === supervisor.rank) {
       apApQuotaByWindow.set(
         windowKey,
         (apApQuotaByWindow.get(windowKey) ?? 0) + 1,
@@ -789,7 +789,7 @@ const StandbyAssignModal: React.FC<{
     (t) =>
       t.name.toLowerCase().includes(search.toLowerCase()) ||
       t.rank.toLowerCase().includes(search.toLowerCase()) ||
-      (t.department ?? "").toLowerCase().includes(search.toLowerCase()),
+      (t.department_id?.toString() ?? "").toLowerCase().includes(search.toLowerCase()),
   );
 
   const toggleTeacher = (id: number) => {
@@ -816,7 +816,7 @@ const StandbyAssignModal: React.FC<{
           teacherId: t.teacher_id,
           teacherName: t.name,
           teacherRank: t.rank,
-          teacherDepartment: t.department,
+          teacherDepartment_id: t.department_id,
           examDate,
         }));
       await commitStandbyAssignments(newStandbys);
@@ -855,7 +855,7 @@ const StandbyAssignModal: React.FC<{
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search by name, rank, or department…"
+              placeholder="Search by name, rank, or department_id…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9 h-9 text-sm"
@@ -913,7 +913,7 @@ const StandbyAssignModal: React.FC<{
                     </p>
                     <p className="text-xs text-muted-foreground truncate">
                       {t.rank}
-                      {t.department ? ` · ${t.department}` : ""}
+                      {t.department_id ? ` · ${t.department_id}` : ""}
                     </p>
                   </div>
                   {isBusy && (
@@ -2082,7 +2082,9 @@ const ExamsOverview: React.FC = () => {
   });
 
   const allVisibleRooms = filteredGroups.flatMap((g) => g.rooms);
-
+  const unassignedVisibleRooms = allVisibleRooms.filter(
+    (r) => (assignmentCounts[r.key] ?? 0) === 0,
+  );
   const handleCardClick = async (room: RoomCardData) => {
     if (selectionMode) return;
     setSelectedRoom(room);
@@ -2116,13 +2118,11 @@ const ExamsOverview: React.FC = () => {
       return next;
     });
   };
-
   const handleAssignAll = () => {
-    if (allVisibleRooms.length === 0) return;
-    setBulkRooms(allVisibleRooms);
+    if (unassignedVisibleRooms.length === 0) return;
+    setBulkRooms(unassignedVisibleRooms);
     setShowBulkModal(true);
   };
-
   const handleAssignSelected = () => {
     const rooms = allVisibleRooms.filter((r) => selectedRoomKeys.has(r.key));
     if (rooms.length === 0) return;
@@ -2256,7 +2256,7 @@ const ExamsOverview: React.FC = () => {
             <Button
               size="sm"
               className="gap-2"
-              disabled={allVisibleRooms.length === 0}
+              disabled={unassignedVisibleRooms.length === 0}
               onClick={handleAssignAll}
             >
               <Zap className="h-4 w-4" />
