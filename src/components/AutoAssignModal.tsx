@@ -23,14 +23,22 @@ export type RankPeriodLimits = Record<string, number>;
 const getPeriodLimit = (rank: string, limits: RankPeriodLimits): number =>
   limits[rank] ?? Infinity;
 
-// ─── School rule: only Associate Professors may be Supervisor ─────────────────
-const SUPERVISOR_RANK = "Associate Professor";
+// ─── Rank order (higher = more senior) ───────────────────────────────────────
+const RANK_ORDER: Record<string, number> = {
+  "Associate Professor": 4,
+  "Lecturer": 3,
+  "Associate Lecturer": 2,
+  "Tutor": 1,
+};
 
+// ─── Rank pairing order (supervisor → assistant, strictly higher → lower) ────
 const SUPERVISOR_ASSISTANT_PAIRS: Array<[string, string]> = [
-  [SUPERVISOR_RANK, "Lecturer"],
-  [SUPERVISOR_RANK, "Assistant Lecturer"],
-  [SUPERVISOR_RANK, "Tutor"],
-  [SUPERVISOR_RANK, "Associate Professor"],
+  ["Associate Professor", "Lecturer"],
+  ["Associate Professor", "Associate Lecturer"],
+  ["Associate Professor", "Tutor"],
+  ["Lecturer", "Associate Lecturer"],
+  ["Lecturer", "Tutor"],
+  ["Associate Lecturer", "Tutor"],
 ];
 
 function eligible(
@@ -63,14 +71,24 @@ function pickPairedTeachers(
   assistants: TeacherWithAvailability[],
   limits: RankPeriodLimits,
 ): PairResult {
-  const eSups = supervisors.filter(
-    (t) => t.rank === SUPERVISOR_RANK && eligible(t, limits),
-  );
-  const eAssts = assistants.filter((t) => eligible(t, limits));
+  const VALID_SUP_RANKS = new Set(SUPERVISOR_ASSISTANT_PAIRS.map(([s]) => s));
+  const VALID_ASST_RANKS = new Set(SUPERVISOR_ASSISTANT_PAIRS.map(([, a]) => a));
 
+  const eSups = supervisors.filter(
+    (t) => VALID_SUP_RANKS.has(t.rank) && eligible(t, limits),
+  );
+  const eAssts = assistants.filter(
+    (t) => VALID_ASST_RANKS.has(t.rank) && eligible(t, limits),
+  );
+
+  // Try valid pairs in priority order
   for (const [supRank, asstRank] of SUPERVISOR_ASSISTANT_PAIRS) {
     const sCandidates = eSups.filter((t) => t.rank === supRank);
-    const aCandidates = eAssts.filter((t) => t.rank === asstRank);
+    const aCandidates = eAssts.filter(
+      (t) =>
+        t.rank === asstRank &&
+        (RANK_ORDER[t.rank] ?? 0) < (RANK_ORDER[supRank] ?? 0),
+    );
     if (sCandidates.length === 0 || aCandidates.length === 0) continue;
 
     const supervisor = minWorkload(sCandidates);
@@ -80,25 +98,50 @@ function pickPairedTeachers(
     if (aBase.length === 0) continue;
     const assistant = minWorkload(aBase);
 
-    const isLastResort = asstRank === SUPERVISOR_RANK;
-    const pairLabel = isLastResort
-      ? `${supRank} + ${asstRank} (last resort — no other rank available)`
-      : `${supRank} + ${asstRank}`;
-
-    return { supervisor, assistant, pairLabel };
+    return {
+      supervisor,
+      assistant,
+      pairLabel: `${supRank} + ${asstRank}`,
+    };
   }
 
+  // Fallback: best available supervisor + any lower-rank assistant
   if (eSups.length > 0) {
     const supervisor = minWorkload(eSups);
-    const rest = eAssts.filter((t) => t.teacher_id !== supervisor.teacher_id);
-    if (rest.length > 0) {
-      const assistant = minWorkload(rest);
+
+    const lowerRankAssts = eAssts.filter(
+      (t) =>
+        t.teacher_id !== supervisor.teacher_id &&
+        (RANK_ORDER[t.rank] ?? 0) < (RANK_ORDER[supervisor.rank] ?? 0),
+    );
+
+    if (lowerRankAssts.length > 0) {
+      const assistant = minWorkload(lowerRankAssts);
       return {
         supervisor,
         assistant,
         pairLabel: `${supervisor.rank} + ${assistant.rank} (fallback)`,
       };
     }
+
+    // Last resort: AP + AP only when no lower-rank assistant exists
+    if (supervisor.rank === "Associate Professor") {
+      const apAssts = assistants.filter(
+        (t) =>
+          t.rank === "Associate Professor" &&
+          t.teacher_id !== supervisor.teacher_id &&
+          eligible(t, limits),
+      );
+      if (apAssts.length > 0) {
+        const assistant = minWorkload(apAssts);
+        return {
+          supervisor,
+          assistant,
+          pairLabel: "AP + AP (last resort)",
+        };
+      }
+    }
+
     return { supervisor, assistant: null, pairLabel: null };
   }
 
@@ -167,15 +210,13 @@ const RoleResultCard: React.FC<{
         </div>
         {teacher ? (
           <>
-            <p className="font-semibold text-gray-900 truncate">
-              {teacher.name}
-            </p>
+            <p className="font-semibold text-gray-900 truncate">{teacher.name}</p>
             <p className="text-xs text-muted-foreground">
-              {teacher.rank} · {teacher.department}
+              {teacher.rank} · Dept {teacher.department_id ?? "—"}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {limit === Infinity
-                ? `${assigned + 1} exam period${assigned + 1 !== 1 ? "s" : ""} after assignment`
+                ? `${assigned + 1} period${assigned + 1 !== 1 ? "s" : ""} after assignment`
                 : `${assigned + 1} / ${limit} after assignment`}
             </p>
           </>
@@ -246,22 +287,19 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
         ),
       ]);
 
-      const {
-        supervisor,
-        assistant,
-        pairLabel: label,
-      } = pickPairedTeachers(supervisors, assistants, rankLimits);
+      const { supervisor, assistant, pairLabel: label } = pickPairedTeachers(
+        supervisors,
+        assistants,
+        rankLimits,
+      );
       setPairLabel(label);
 
-      const apSupervisors = supervisors.filter(
-        (t) => t.rank === SUPERVISOR_RANK,
-      );
       const supReason = !supervisor
-        ? apSupervisors.length === 0
-          ? "No Associate Professors found in database"
-          : apSupervisors.every((t) => !t.availability.is_available)
-            ? "All Associate Professors are already assigned today"
-            : "All Associate Professors have reached their period limit"
+        ? supervisors.length === 0
+          ? "No supervisors found in database"
+          : supervisors.every((t) => !t.availability.is_available)
+            ? "All teachers are already assigned today"
+            : "All eligible teachers have reached their period limit"
         : undefined;
 
       const asstReason = !assistant
@@ -293,11 +331,10 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
     setError(null);
     try {
       for (const r of toAssign) {
-        // FIX: pass examDate so delete is scoped to this date only
         await teacherAssignmentQueries.deleteByRoomAndRole(
           activeExamRoomId,
           r.role,
-          examDate, // ← added
+          examDate,
         );
         await teacherAssignmentQueries.create(
           activeExamRoomId,
@@ -360,7 +397,7 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
                 <ShieldCheck className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
                 <div className="text-xs text-blue-700 space-y-0.5">
                   <p className="font-semibold">
-                    School rule: Supervisor must be Associate Professor
+                    Pairing: AP→L, AP→AL, AP→T, L→AL, L→T, AL→T · AP→AP (last resort only)
                   </p>
                   {Object.keys(rankLimits).length > 0 && (
                     <p>
@@ -376,11 +413,9 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
               {pairLabel && (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/10">
                   <span className="text-xs font-semibold text-primary">
-                    Rank pairing:
+                    Selected pairing:
                   </span>
-                  <span className="text-xs text-muted-foreground">
-                    {pairLabel}
-                  </span>
+                  <span className="text-xs text-muted-foreground">{pairLabel}</span>
                 </div>
               )}
 
@@ -415,12 +450,7 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
         {/* Footer */}
         {!loading && (
           <div className="px-6 py-4 border-t flex items-center justify-end gap-2 bg-gray-50 rounded-b-xl">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onClose}
-              disabled={submitting}
-            >
+            <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
               Cancel
             </Button>
             <Button

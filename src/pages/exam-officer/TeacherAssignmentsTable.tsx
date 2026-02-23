@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2, Download, RefreshCw } from "lucide-react";
+import { Loader2, Download, RefreshCw, AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import DashboardLayout from "@/components/layouts/DashboardLayout";
@@ -10,13 +10,12 @@ import {
 } from "@/services/teacherAssignmentTableQueries";
 
 const TeacherAssignmentsTable: React.FC = () => {
-  const [assignments, setAssignments] = useState<TeacherAssignmentWithRoom[]>(
-    [],
-  );
+  const [assignments, setAssignments] = useState<TeacherAssignmentWithRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showConflictsOnly, setShowConflictsOnly] = useState(false);
 
   const tbodyRef = useRef<HTMLTableSectionElement>(null);
 
@@ -58,27 +57,13 @@ const TeacherAssignmentsTable: React.FC = () => {
       let heightLeft = imgHeight;
       let position = 0;
 
-      pdf.addImage(
-        canvas.toDataURL("image/png"),
-        "PNG",
-        0,
-        position,
-        imgWidth,
-        imgHeight,
-      );
+      pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, position, imgWidth, imgHeight);
       heightLeft -= pageHeight;
 
       while (heightLeft > 0) {
         position = heightLeft - imgHeight;
         pdf.addPage();
-        pdf.addImage(
-          canvas.toDataURL("image/png"),
-          "PNG",
-          0,
-          position,
-          imgWidth,
-          imgHeight,
-        );
+        pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, position, imgWidth, imgHeight);
         heightLeft -= pageHeight;
       }
 
@@ -91,6 +76,11 @@ const TeacherAssignmentsTable: React.FC = () => {
       setExporting(false);
     }
   };
+
+  const conflictCount = assignments.filter((a) => a.has_conflict).length;
+  const displayed = showConflictsOnly
+    ? assignments.filter((a) => a.has_conflict)
+    : assignments;
 
   const renderContent = () => {
     if (loading) {
@@ -122,102 +112,168 @@ const TeacherAssignmentsTable: React.FC = () => {
     }
 
     return (
-      <div className="bg-white rounded-lg border overflow-hidden">
-        <table className="w-full text-sm border-collapse">
-          <thead>
-            <tr className="bg-gray-50 border-b">
-              <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r">
-                Day / Date
-              </th>
-              <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r">
-                Teacher Name
-              </th>
-              <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r">
-                Rank
-              </th>
-              <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r">
-                Role
-              </th>
-              <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r">
-                Assigned Room
-              </th>
-              <th className="px-4 py-3 text-left font-semibold text-gray-700">
-                Session
-              </th>
-            </tr>
-          </thead>
-          <tbody ref={tbodyRef}>
-            {assignments.map((a, idx) => {
-              const date = a.exam_date ?? "—";
-              const dayOfWeek = a.exam_date
-                ? new Date(a.exam_date).toLocaleDateString("en-US", {
-                    weekday: "long",
-                  })
-                : "—";
+      <div className="space-y-4">
+        {/* Conflict summary banner */}
+        <div
+          className={`flex items-center gap-3 px-4 py-3 rounded-lg border text-sm font-medium ${
+            conflictCount > 0
+              ? "bg-red-50 border-red-200 text-red-700"
+              : "bg-emerald-50 border-emerald-200 text-emerald-700"
+          }`}
+        >
+          {conflictCount > 0 ? (
+            <>
+              <ShieldAlert className="h-5 w-5 shrink-0" />
+              <span>
+                <strong>{conflictCount} conflict{conflictCount !== 1 ? "s" : ""} detected</strong> — teacher assigned to exam from their own department.
+              </span>
+              <button
+                className="ml-auto underline text-xs font-semibold"
+                onClick={() => setShowConflictsOnly((v) => !v)}
+              >
+                {showConflictsOnly ? "Show all" : "Show conflicts only"}
+              </button>
+            </>
+          ) : (
+            <>
+              <CheckCircle2 className="h-5 w-5 shrink-0" />
+              <span>
+                <strong>No department conflicts</strong> — all {assignments.length} assignments are clean.
+              </span>
+            </>
+          )}
+        </div>
 
-              return (
-                <tr
-                  key={a.assignment_id}
-                  className={`border-b last:border-b-0 ${
-                    idx % 2 === 0 ? "bg-white" : "bg-gray-50/50"
-                  }`}
-                >
-                  <td className="px-4 py-3 border-r align-top">
-                    <div className="font-medium text-gray-800">{dayOfWeek}</div>
-                    <div className="text-xs text-gray-500 mt-0.5">{date}</div>
-                  </td>
+        <div className="bg-white rounded-lg border overflow-hidden">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="bg-gray-50 border-b">
+                <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r">
+                  Day / Date
+                </th>
+                <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r">
+                  Teacher Name
+                </th>
+                <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r">
+                  Rank
+                </th>
+                <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r">
+                  Role
+                </th>
+                <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r">
+                  Assigned Room
+                </th>
+                <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r">
+                  Session
+                </th>
+                <th className="px-4 py-3 text-left font-semibold text-gray-700">
+                  Dept. Conflict
+                </th>
+              </tr>
+            </thead>
+            <tbody ref={tbodyRef}>
+              {displayed.map((a, idx) => {
+                const date = a.exam_date ?? "—";
+                const dayOfWeek = a.exam_date
+                  ? new Date(a.exam_date).toLocaleDateString("en-US", {
+                      weekday: "long",
+                    })
+                  : "—";
 
-                  <td className="px-4 py-3 border-r align-top">
-                    <div className="font-medium text-gray-800">
-                      {a.teacher?.name ?? "—"}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      {a.teacher?.department ?? ""}
-                    </div>
-                  </td>
+                return (
+                  <tr
+                    key={a.assignment_id}
+                    className={`border-b last:border-b-0 ${
+                      a.has_conflict
+                        ? "bg-red-50/60"
+                        : idx % 2 === 0
+                          ? "bg-white"
+                          : "bg-gray-50/50"
+                    }`}
+                  >
+                    <td className="px-4 py-3 border-r align-top">
+                      <div className="font-medium text-gray-800">{dayOfWeek}</div>
+                      <div className="text-xs text-gray-500 mt-0.5">{date}</div>
+                    </td>
 
-                  <td className="px-4 py-3 border-r align-top">
-                    <span className="text-sm text-gray-700">
-                      {a.teacher?.rank ?? "—"}
-                    </span>
-                  </td>
+                    <td className="px-4 py-3 border-r align-top">
+                      <div className="font-medium text-gray-800">
+                        {a.teacher?.name ?? "—"}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-0.5">
+                        Dept ID: {a.teacher?.department_id ?? "—"}
+                      </div>
+                    </td>
 
-                  <td className="px-4 py-3 border-r align-top">
-                    <span
-                      className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full ${
-                        a.role === "Supervisor"
-                          ? "bg-blue-100 text-blue-700"
-                          : "bg-green-100 text-green-700"
-                      }`}
-                    >
-                      {a.role}
-                    </span>
-                  </td>
+                    <td className="px-4 py-3 border-r align-top">
+                      <span className="text-sm text-gray-700">
+                        {a.teacher?.rank ?? "—"}
+                      </span>
+                    </td>
 
-                  <td className="px-4 py-3 border-r align-top">
-                    <span className="font-medium text-gray-800">
-                      {a.room_number ?? "—"}
-                    </span>
-                  </td>
+                    <td className="px-4 py-3 border-r align-top">
+                      <span
+                        className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full ${
+                          a.role === "Supervisor"
+                            ? "bg-blue-100 text-blue-700"
+                            : "bg-green-100 text-green-700"
+                        }`}
+                      >
+                        {a.role}
+                      </span>
+                    </td>
 
-                  <td className="px-4 py-3 align-top">
-                    <span
-                      className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full ${
-                        a.session === "Morning"
-                          ? "bg-amber-100 text-amber-700"
-                          : a.session === "Afternoon"
-                            ? "bg-orange-100 text-orange-700"
-                            : "bg-purple-100 text-purple-700"
-                      }`}
-                    >
-                      {a.session ?? "—"}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    <td className="px-4 py-3 border-r align-top">
+                      <span className="font-medium text-gray-800">
+                        {a.room_number ?? "—"}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-3 border-r align-top">
+                      <span
+                        className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full ${
+                          a.session === "Morning"
+                            ? "bg-amber-100 text-amber-700"
+                            : a.session === "Afternoon"
+                              ? "bg-orange-100 text-orange-700"
+                              : "bg-purple-100 text-purple-700"
+                        }`}
+                      >
+                        {a.session ?? "—"}
+                      </span>
+                    </td>
+
+                    {/* Conflict column */}
+                    <td className="px-4 py-3 align-top">
+                      {a.has_conflict ? (
+                        <div className="flex items-center gap-1.5">
+                          <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
+                          <span className="text-xs font-semibold text-red-600">
+                            Conflict
+                          </span>
+                          <span className="text-[10px] text-red-400">
+                            (Dept {a.teacher?.department_id} = Dept {a.exam_department_id})
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                          <span className="text-xs text-emerald-600">OK</span>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {displayed.length === 0 && showConflictsOnly && (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              No conflicts found.
+            </div>
+          )}
+        </div>
       </div>
     );
   };
@@ -248,9 +304,7 @@ const TeacherAssignmentsTable: React.FC = () => {
               size="sm"
               className="gap-1.5"
             >
-              <RefreshCw
-                className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
-              />
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
               Refresh
             </Button>
           </div>
