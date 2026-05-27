@@ -217,183 +217,126 @@ export const examRoomLinkQueries = {
   // group columns stored on exam_room.
 
   async getAllDateGroups(): Promise<DateGroup[]> {
-    // ── A. Fetch all exam_rooms with their group info and room details ─────────
-    const { data: examRooms, error: erErr } = await supabase
-      .from("exam_room")
-      .select(
-        `
+  // ── 1. Fetch all links with their exam and exam_room data in one query ──
+  const { data: links, error: linkErr } = await supabase
+    .from("exam_room_exam_link")
+    .select(`
+      link_id,
+      group_type,
+      exam:exam_id (
+        exam_id,
+        subject_code,
+        exam_name,
+        program,
+        specialization,
+        year_level,
+        semester,
+        exam_date,
+        day_of_week,
+        start_time,
+        end_time,
+        department_id
+      ),
+      exam_room:exam_room_id (
         exam_room_id,
-        room_id,
-        assigned_capacity,
+        students_primary,
+        students_secondary,
         year_level_primary,
         sem_primary,
         program_primary,
         specialization_primary,
-        students_primary,
         year_level_secondary,
         sem_secondary,
         program_secondary,
         specialization_secondary,
-        students_secondary,
         room:room_id (
           room_id,
           room_number,
           capacity
         )
-      `,
       )
-      .order("exam_room_id", { ascending: true });
+    `);
 
-    if (erErr) throw erErr;
-    if (!examRooms || examRooms.length === 0) return [];
+  if (linkErr) throw linkErr;
+  if (!links || links.length === 0) return [];
 
-    // ── B. For each exam_room find all exams for primary AND secondary group ───
-    //
-    // We batch all the exam lookups to avoid N individual queries.
-    // Collect unique (year_level, semester, program, specialization) tuples and
-    // fetch all matching exams in one query; then filter in memory.
+  // ── 2. Group by (exam_room_id × exam_date) ──────────────────────────────
+  const cardMap = new Map<string, RoomCardData>();
 
-    // Gather unique group keys → fetch all matching exams in ONE query
-    // We'll fetch ALL exams once and filter in memory — simpler and fast enough
-    // for typical exam counts (< 200 rows).
+  for (const link of links as any[]) {
+    const exam = link.exam;
+    const er = link.exam_room;
+    if (!exam || !er) continue;
 
-    const { data: allExams, error: examErr } = await supabase
-      .from("exam")
-      .select("*")
-      .order("exam_date", { ascending: true })
-      .order("start_time", { ascending: true });
+    const examRoomId: number = er.exam_room_id;
+    const examDate: string = exam.exam_date;
+    const cardKey = `${examRoomId}-${examDate}`;
 
-    if (examErr) throw examErr;
-    const exams = (allExams ?? []) as Exam[];
+    if (!cardMap.has(cardKey)) {
+      const examSession = deriveSession(exam.start_time);
+      const examTime =
+        exam.start_time && exam.end_time
+          ? { start: fmtTime(exam.start_time), end: fmtTime(exam.end_time) }
+          : undefined;
 
-    // ── Helper: find exams matching a group descriptor ────────────────────────
-    function matchExams(
-      yearLevel: string | null | undefined,
-      semester: string | null | undefined,
-      program: string | null | undefined,
-      specialization: string | null | undefined,
-    ): Exam[] {
-      if (!yearLevel || !semester || !program) return [];
-
-      return exams.filter((e) => {
-        const examYear = String(parseInt(e.year_level, 10) || e.year_level);
-        const examSem = String(parseInt(e.semester, 10) || e.semester);
-        const roomYear = String(parseInt(yearLevel, 10) || yearLevel);
-        const roomSem = String(parseInt(semester, 10) || semester);
-
-        const yearMatch = examYear === roomYear;
-        const semMatch = examSem === roomSem;
-        const programMatch = e.program === program;
-
-        // Normalise empty / null specialization to ""
-        const eSpec = (e.specialization ?? "").trim();
-        const rSpec = (specialization ?? "").trim();
-        const specMatch = eSpec === rSpec;
-
-        return yearMatch && semMatch && programMatch && specMatch;
+      cardMap.set(cardKey, {
+        key: cardKey,
+        examRoomId,
+        roomNumber: er.room?.room_number ?? "Unknown",
+        roomCapacity: er.room?.capacity ?? 0,
+        examDate,
+        dayOfWeek: exam.day_of_week ?? "",
+        examSession,
+        examTime,
+        primaryExams: [],
+        secondaryExams: [],
+        totalStudents: (er.students_primary ?? 0) + (er.students_secondary ?? 0),
+        primaryGroupLabel: null,
+        secondaryGroupLabel: null,
       });
     }
 
-    // ── C. Build (examRoom × date) → RoomCardData entries ────────────────────
+    const card = cardMap.get(cardKey)!;
 
-    // dateMap: examDate → { dayOfWeek, rooms[] }
-    const dateMap = new Map<
-      string,
-      { dayOfWeek: string; rooms: RoomCardData[] }
-    >();
-
-    for (const er of examRooms as any[]) {
-      const examRoomId: number = er.exam_room_id;
-      const roomNumber: string = er.room?.room_number ?? "Unknown";
-      const roomCapacity: number = er.room?.capacity ?? 0;
-      const totalStudents: number =
-        (er.students_primary ?? 0) + (er.students_secondary ?? 0);
-
-      // Find all exams for primary group
-      const primaryExams = matchExams(
-        er.year_level_primary,
-        er.sem_primary,
-        er.program_primary,
-        er.specialization_primary,
-      );
-
-      // Find all exams for secondary group
-      const secondaryExams = matchExams(
-        er.year_level_secondary,
-        er.sem_secondary,
-        er.program_secondary,
-        er.specialization_secondary,
-      );
-
-      // Collect all unique exam dates this room is active on
-      const allDates = new Set<string>([
-        ...primaryExams.map((e) => e.exam_date),
-        ...secondaryExams.map((e) => e.exam_date),
-      ]);
-
-      if (allDates.size === 0) continue;
-
-      // Build one RoomCardData per date
-      for (const examDate of allDates) {
-        const primaryOnDate = primaryExams.filter(
-          (e) => e.exam_date === examDate,
-        );
-        const secondaryOnDate = secondaryExams.filter(
-          (e) => e.exam_date === examDate,
-        );
-
-        // Use the first exam on this date for time/session info
-        const representativeExam = primaryOnDate[0] ?? secondaryOnDate[0];
-
-        const examSession = deriveSession(representativeExam.start_time);
-        const examTime =
-          representativeExam.start_time && representativeExam.end_time
-            ? {
-                start: fmtTime(representativeExam.start_time),
-                end: fmtTime(representativeExam.end_time),
-              }
-            : undefined;
-
-        const dayOfWeek = representativeExam.day_of_week;
-
-        const card: RoomCardData = {
-          key: `${examRoomId}-${examDate}`,
-          examRoomId,
-          roomNumber,
-          roomCapacity,
-          examDate,
-          dayOfWeek,
-          examSession,
-          examTime,
-          primaryExams: primaryOnDate,
-          secondaryExams: secondaryOnDate,
-          totalStudents,
-          primaryGroupLabel:
-            primaryOnDate.length > 0 ? buildGroupLabel(primaryOnDate[0]) : null,
-          secondaryGroupLabel:
-            secondaryOnDate.length > 0
-              ? buildGroupLabel(secondaryOnDate[0])
-              : null,
+    if (link.group_type === "primary") {
+      card.primaryExams.push(exam as Exam);
+      if (!card.primaryGroupLabel) {
+        card.primaryGroupLabel = buildGroupLabel(exam as Exam);
+      }
+      // Keep examTime in sync with the earliest primary exam
+      if (exam.start_time && exam.end_time) {
+        card.examTime = {
+          start: fmtTime(exam.start_time),
+          end: fmtTime(exam.end_time),
         };
-
-        if (!dateMap.has(examDate)) {
-          dateMap.set(examDate, { dayOfWeek, rooms: [] });
-        }
-        dateMap.get(examDate)!.rooms.push(card);
+        card.examSession = deriveSession(exam.start_time);
+      }
+    } else {
+      card.secondaryExams.push(exam as Exam);
+      if (!card.secondaryGroupLabel) {
+        card.secondaryGroupLabel = buildGroupLabel(exam as Exam);
       }
     }
+  }
 
-    // ── D. Sort rooms within each date by room number, then sort dates ─────────
-    const result: DateGroup[] = Array.from(dateMap.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([examDate, { dayOfWeek, rooms }]) => ({
-        examDate,
-        dayOfWeek,
-        rooms: rooms.sort((a, b) => a.roomNumber.localeCompare(b.roomNumber)),
-      }));
+  // ── 3. Sort rooms within each date, then sort dates ─────────────────────
+  const dateMap = new Map<string, { dayOfWeek: string; rooms: RoomCardData[] }>();
 
-    return result;
-  },
+  for (const card of cardMap.values()) {
+    if (!dateMap.has(card.examDate)) {
+      dateMap.set(card.examDate, { dayOfWeek: card.dayOfWeek, rooms: [] });
+    }
+    dateMap.get(card.examDate)!.rooms.push(card);
+  }
+
+  return Array.from(dateMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([examDate, { dayOfWeek, rooms }]) => ({
+      examDate,
+      dayOfWeek,
+      rooms: rooms.sort((a, b) => a.roomNumber.localeCompare(b.roomNumber)),
+    }));
+},
 
   async getDateGroupByDate(targetDate: string): Promise<DateGroup | null> {
     const all = await examRoomLinkQueries.getAllDateGroups();

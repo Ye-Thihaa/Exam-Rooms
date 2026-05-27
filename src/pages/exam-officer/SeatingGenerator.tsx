@@ -160,70 +160,86 @@ const SeatingGenerator: React.FC = () => {
     };
     return mapping[displayName] || displayName;
   };
-
+  
   /**
    * Fetch students for both groups.
    * @param excludeIds - Student IDs already claimed by previously generated rooms (batch mode)
    */
-  const fetchStudentsForGroups = async (
-    examRoom: ExamRoomDetails,
-    excludeIds: Set<number> = new Set(),
-  ): Promise<StudentData | null> => {
-    try {
-      const primaryProgram = getProgramCode(examRoom.program_primary);
-      const secondaryProgram = getProgramCode(examRoom.program_secondary);
+ const fetchStudentsForGroups = async (
+  examRoom: ExamRoomDetails,
+  excludeIds: Set<number> = new Set(),
+): Promise<StudentData | null> => {
+  try {
+    const primaryProgram = getProgramCode(examRoom.program_primary);
+    const secondaryProgram = getProgramCode(examRoom.program_secondary);
 
-      const [primaryResult, secondaryResult] = await Promise.all([
-        getUnassignedStudentsByGroup(
-          parseInt(examRoom.year_level_primary),
-          parseInt(examRoom.sem_primary),
-          primaryProgram,
-          examRoom.specialization_primary,
-          // Fetch more than needed so we can filter out claimed ones
-          examRoom.students_primary + excludeIds.size,
-        ),
-        getUnassignedStudentsByGroup(
-          parseInt(examRoom.year_level_secondary),
-          parseInt(examRoom.sem_secondary),
-          secondaryProgram,
-          examRoom.specialization_secondary,
-          examRoom.students_secondary + excludeIds.size,
-        ),
-      ]);
+    const isSamePool =
+      primaryProgram === secondaryProgram &&
+      examRoom.year_level_primary === examRoom.year_level_secondary &&
+      examRoom.sem_primary === examRoom.sem_secondary &&
+      (examRoom.specialization_primary ?? "") ===
+        (examRoom.specialization_secondary ?? "");
 
-      if (!primaryResult.success || !secondaryResult.success) {
-        toast.error("Failed to fetch students");
-        return null;
-      }
+    // Step 1: fetch primary
+    const primaryResult = await getUnassignedStudentsByGroup(
+      parseInt(examRoom.year_level_primary),
+      parseInt(examRoom.sem_primary),
+      primaryProgram,
+      examRoom.specialization_primary,
+      examRoom.students_primary + excludeIds.size,
+    );
 
-      // ✅ Filter out students already claimed by earlier rooms in this batch
-      const primaryStudents = (primaryResult.data || [])
-        .filter((s) => !excludeIds.has(s.student_id))
-        .slice(0, examRoom.students_primary);
-
-      const secondaryStudents = (secondaryResult.data || [])
-        .filter((s) => !excludeIds.has(s.student_id))
-        .slice(0, examRoom.students_secondary);
-
-      if (primaryStudents.length < examRoom.students_primary) {
-        toast.warning(
-          `Room ${examRoom.room.room_number}: Only ${primaryStudents.length} unassigned primary students available (need ${examRoom.students_primary})`,
-        );
-      }
-      if (secondaryStudents.length < examRoom.students_secondary) {
-        toast.warning(
-          `Room ${examRoom.room.room_number}: Only ${secondaryStudents.length} unassigned secondary students available (need ${examRoom.students_secondary})`,
-        );
-      }
-
-      return { primaryStudents, secondaryStudents };
-    } catch (error) {
-      console.error("Error fetching students:", error);
-      toast.error("Failed to fetch student data");
+    if (!primaryResult.success) {
+      toast.error("Failed to fetch primary students");
       return null;
     }
-  };
 
+    const primaryStudents = (primaryResult.data || [])
+      .filter((s) => !excludeIds.has(s.student_id))
+      .slice(0, examRoom.students_primary);
+
+    // Step 2: build secondary exclude set
+    const primaryIds = new Set(primaryStudents.map((s) => s.student_id));
+    const secondaryExcludeIds = isSamePool
+      ? new Set([...excludeIds, ...primaryIds])
+      : excludeIds;
+
+    // Step 3: fetch secondary
+    const secondaryResult = await getUnassignedStudentsByGroup(
+      parseInt(examRoom.year_level_secondary),
+      parseInt(examRoom.sem_secondary),
+      secondaryProgram,
+      examRoom.specialization_secondary,
+      examRoom.students_secondary + secondaryExcludeIds.size,
+    );
+
+    if (!secondaryResult.success) {
+      toast.error("Failed to fetch secondary students");
+      return null;
+    }
+
+    const secondaryStudents = (secondaryResult.data || [])
+      .filter((s) => !secondaryExcludeIds.has(s.student_id))
+      .slice(0, examRoom.students_secondary);
+
+    if (primaryStudents.length < examRoom.students_primary) {
+      toast.warning(
+        `Room ${examRoom.room.room_number}: Only ${primaryStudents.length} primary students available (need ${examRoom.students_primary})`,
+      );
+    }
+    if (secondaryStudents.length < examRoom.students_secondary) {
+      toast.warning(
+        `Room ${examRoom.room.room_number}: Only ${secondaryStudents.length} secondary students available (need ${examRoom.students_secondary})`,
+      );
+    }
+
+    return { primaryStudents, secondaryStudents };
+  } catch (error) {
+    console.error("Error fetching students:", error);
+    toast.error("Failed to fetch student data");
+    return null;
+  }
+};
   /**
    * Convert algorithm SeatingGrid output to SeatAssignment format for UI
    */
@@ -503,25 +519,28 @@ const SeatingGenerator: React.FC = () => {
   };
 
   const handleSaveSeatingPlan = async () => {
-    if (!selectedExamRoom || generatedSeats.length === 0 || !studentData) {
-      toast.error("No seating plan to save");
-      return;
-    }
+  if (!selectedExamRoom || generatedSeats.length === 0 || !studentData) {
+    toast.error("No seating plan to save");
+    return;
+  }
 
-    setIsSaving(true);
-    try {
-      const assignments: SeatingAssignmentInput[] = generatedSeats
-        .filter((seat) => seat.isOccupied && seat.studentId)
-        .map((seat) => ({
-          exam_room_id: selectedExamRoom.exam_room_id,
-          student_id: seat.studentId!,
-          seat_number: seat.seatNumber,
-          row_label: seat.row,
-          column_number: seat.column,
-          student_group: seat.groupType || "A",
-        }));
+  setIsSaving(true);
+  try {
+    // ← ADD THIS
+    await clearSeatingAssignments(selectedExamRoom.exam_room_id);
 
-      const result = await saveSeatingAssignments(assignments);
+    const assignments: SeatingAssignmentInput[] = generatedSeats
+      .filter((seat) => seat.isOccupied && seat.studentId)
+      .map((seat) => ({
+        exam_room_id: selectedExamRoom.exam_room_id,
+        student_id: seat.studentId!,
+        seat_number: seat.seatNumber,
+        row_label: seat.row,
+        column_number: seat.column,
+        student_group: seat.groupType || "A",
+      }));
+
+    const result = await saveSeatingAssignments(assignments);
       if (result.success) {
         toast.success(
           `Successfully saved ${assignments.length} seating assignments!`,
@@ -748,38 +767,40 @@ const SeatingGenerator: React.FC = () => {
    * User confirmed the summary — save all ready plans
    */
   const handleConfirmSaveAll = async () => {
-    const readyPlans = generatedPlans.filter((p) => p.status === "ready");
-    if (readyPlans.length === 0) {
-      toast.info("No plans to save");
-      setShowGenerateAllSummary(false);
-      return;
-    }
+  const readyPlans = generatedPlans.filter((p) => p.status === "ready");
+  if (readyPlans.length === 0) {
+    toast.info("No plans to save");
+    setShowGenerateAllSummary(false);
+    return;
+  }
 
-    setIsSavingAll(true);
-    let savedCount = 0;
-    let failedCount = 0;
+  setIsSavingAll(true);
+  let savedCount = 0;
+  let failedCount = 0;
 
-    for (const plan of readyPlans) {
-      try {
-        const result = await saveSeatingAssignments(plan.assignments);
-        if (result.success) {
-          savedCount++;
-        } else {
-          failedCount++;
-          console.error(
-            `Failed to save room ${plan.examRoom.room.room_number}:`,
-            result.error,
-          );
-        }
-      } catch (error) {
+  for (const plan of readyPlans) {
+    try {
+      // ← ADD THIS: clear existing assignments before saving new ones
+      await clearSeatingAssignments(plan.examRoom.exam_room_id);
+
+      const result = await saveSeatingAssignments(plan.assignments);
+      if (result.success) {
+        savedCount++;
+      } else {
         failedCount++;
         console.error(
-          `Exception saving room ${plan.examRoom.room.room_number}:`,
-          error,
+          `Failed to save room ${plan.examRoom.room.room_number}:`,
+          result.error,
         );
       }
+    } catch (error) {
+      failedCount++;
+      console.error(
+        `Exception saving room ${plan.examRoom.room.room_number}:`,
+        error,
+      );
     }
-
+  }
     setIsSavingAll(false);
     setShowGenerateAllSummary(false);
     setGeneratedPlans([]);

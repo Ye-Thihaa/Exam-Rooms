@@ -1,0 +1,19 @@
+{
+  "name": "Exam Manager Application",
+  "short_name": "Exam Manager",
+  "description": "A comprehensive exam management system for students and educators.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4F46E5",
+  "orientation": "portrait",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icon_01.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

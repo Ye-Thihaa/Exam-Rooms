@@ -31,11 +31,12 @@ const RANK_ORDER: Record<string, number> = {
   "Tutor": 1,
 };
 
-// ─── Pairing constants (strictly higher → lower rank) ────────────────────────
+// ─── Pairing list — AP+AP is now a first-class equal pair ────────────────────
 
 const SUPERVISOR_ASSISTANT_PAIRS: Array<[string, string]> = [
   ["Associate Professor", "Lecturer"],
   ["Associate Professor", "Associate Lecturer"],
+  ["Associate Professor", "Associate Professor"], // equal rank — fully valid
   ["Associate Professor", "Tutor"],
   ["Lecturer", "Associate Lecturer"],
   ["Lecturer", "Tutor"],
@@ -65,11 +66,9 @@ function isEligible(
 function lowestWorkload(
   candidates: TeacherWithAvailability[],
 ): TeacherWithAvailability {
-  return candidates.reduce((best, t) =>
-    (t.total_periods_assigned ?? 0) < (best.total_periods_assigned ?? 0)
-      ? t
-      : best,
-  );
+  const minLoad = Math.min(...candidates.map(t => t.total_periods_assigned ?? 0));
+  const tied = candidates.filter(t => (t.total_periods_assigned ?? 0) === minLoad);
+  return tied[Math.floor(Math.random() * tied.length)];
 }
 
 function incrementPeriodCount(teacherId: number, ctx: BulkAssignContext): void {
@@ -127,48 +126,30 @@ function pickPairedTeachers(
     pastPairs.map((p) => p.assistantId).filter(Boolean) as number[],
   );
 
-  // Build viable pairs — strictly enforce supervisor rank > assistant rank
+  // Build viable pairs — allow AP+AP equal rank explicitly
   const viablePairs: Array<{
     key: string;
     supRank: string;
     asstRank: string;
     usage: number;
   }> = [];
+
   for (const [supRank, asstRank] of SUPERVISOR_ASSISTANT_PAIRS) {
+    const isApAp = supRank === "Associate Professor" && asstRank === "Associate Professor";
     const hasEligibleSup = eligibleSups.some((t) => t.rank === supRank);
-    const hasEligibleAsst = eligibleAssts.some(
-      (t) =>
-        t.rank === asstRank &&
-        (RANK_ORDER[t.rank] ?? 0) < (RANK_ORDER[supRank] ?? 0),
-    );
+    const hasEligibleAsst = eligibleAssts.some((t) => {
+      if (t.rank !== asstRank) return false;
+      if (isApAp) return true; // equal rank explicitly allowed
+      return (RANK_ORDER[t.rank] ?? 0) < (RANK_ORDER[supRank] ?? 0);
+    });
+
     if (!hasEligibleSup || !hasEligibleAsst) continue;
     const key = `${supRank}|${asstRank}`;
     viablePairs.push({ key, supRank, asstRank, usage: pairTypeUsage.get(key) ?? 0 });
   }
 
   if (viablePairs.length === 0) {
-    // No strict lower-rank pair found — try AP+AP as last resort
-    const apSups = eligibleSups.filter((t) => t.rank === "Associate Professor");
-    if (apSups.length > 0) {
-      const supFresh = apSups.filter((t) => !pastSupIds.has(t.teacher_id));
-      const supervisor = lowestWorkload(supFresh.length > 0 ? supFresh : apSups);
-
-      const apAssts = assistants.filter(
-        (t) =>
-          t.rank === "Associate Professor" &&
-          t.teacher_id !== supervisor.teacher_id &&
-          isEligible(t, limits, dayUsedIds, blockedDeptIds),
-      );
-      if (apAssts.length > 0) {
-        const asstFresh = apAssts.filter((t) => !pastAsstIds.has(t.teacher_id));
-        return {
-          supervisor,
-          assistant: lowestWorkload(asstFresh.length > 0 ? asstFresh : apAssts),
-        };
-      }
-    }
-
-    // Truly no pair possible — supervisor only
+    // No valid pair at all — return best supervisor alone
     const supFresh = eligibleSups.filter((t) => !pastSupIds.has(t.teacher_id));
     return {
       supervisor: lowestWorkload(supFresh.length > 0 ? supFresh : eligibleSups),
@@ -176,25 +157,32 @@ function pickPairedTeachers(
     };
   }
 
-  // Pick least-used pair type for fair distribution
+  // Round-robin: pick least-used pair type
   const chosen = viablePairs.reduce((best, cur) =>
     cur.usage < best.usage ? cur : best,
   );
   pairTypeUsage.set(chosen.key, (pairTypeUsage.get(chosen.key) ?? 0) + 1);
 
-  // Pick supervisor of chosen rank, prefer fresh
+  const isChosenApAp =
+    chosen.supRank === "Associate Professor" &&
+    chosen.asstRank === "Associate Professor";
+
+  // Pick supervisor of chosen rank, prefer fresh (not recently paired)
   const supOfRank = eligibleSups.filter((t) => t.rank === chosen.supRank);
   const supFresh = supOfRank.filter((t) => !pastSupIds.has(t.teacher_id));
   const supervisor = lowestWorkload(supFresh.length > 0 ? supFresh : supOfRank);
 
-  // Pick assistant of chosen rank, strictly lower rank, excluding supervisor
+  // Pick assistant of chosen rank, exclude the supervisor, respect rank rule
   const asstOfRank = eligibleAssts
     .filter((t) => t.rank === chosen.asstRank)
     .filter((t) => t.teacher_id !== supervisor.teacher_id)
-    .filter((t) => (RANK_ORDER[t.rank] ?? 0) < (RANK_ORDER[supervisor.rank] ?? 0));
+    .filter((t) => {
+      if (isChosenApAp) return true; // AP+AP: equal rank is fine
+      return (RANK_ORDER[t.rank] ?? 0) < (RANK_ORDER[supervisor.rank] ?? 0);
+    });
 
   if (asstOfRank.length === 0) {
-    // Fallback 1: any eligible assistant with strictly lower rank
+    // Fallback: any eligible assistant with strictly lower rank than supervisor
     const anyLowerAsst = eligibleAssts.filter(
       (t) =>
         t.teacher_id !== supervisor.teacher_id &&
@@ -207,24 +195,6 @@ function pickPairedTeachers(
         assistant: lowestWorkload(fresh.length > 0 ? fresh : anyLowerAsst),
       };
     }
-
-    // Fallback 2: AP+AP last resort
-    if (supervisor.rank === "Associate Professor") {
-      const apAssts = assistants.filter(
-        (t) =>
-          t.rank === "Associate Professor" &&
-          t.teacher_id !== supervisor.teacher_id &&
-          isEligible(t, limits, dayUsedIds, blockedDeptIds),
-      );
-      if (apAssts.length > 0) {
-        const fresh = apAssts.filter((t) => !pastAsstIds.has(t.teacher_id));
-        return {
-          supervisor,
-          assistant: lowestWorkload(fresh.length > 0 ? fresh : apAssts),
-        };
-      }
-    }
-
     return { supervisor, assistant: null };
   }
 

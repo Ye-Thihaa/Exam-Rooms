@@ -1,5 +1,5 @@
 import React from 'react';
-import { Exam } from './examQueries';
+import { Exam } from '@/services/examQueries';
 
 interface ExamStatsProps {
   exams: Exam[];

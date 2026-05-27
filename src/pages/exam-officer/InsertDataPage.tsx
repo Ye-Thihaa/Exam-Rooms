@@ -17,13 +17,14 @@ import {
   Eye,
   EyeOff,
   Table2,
+  Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import * as XLSX from "xlsx";
 import supabase from "@/utils/supabase";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
-type TableType = "student" | "teacher" | "exam";
+type TableType = "department" | "student" | "teacher" | "exam";
 
 interface ColumnHint {
   name: string;
@@ -54,6 +55,32 @@ interface UploadState {
 
 // ─── Schemas ────────────────────────────────────────────────────────────────
 const TABLE_SCHEMAS: Record<TableType, TableSchema> = {
+  department: {
+    label: "Departments",
+    icon: Building2,
+    color: "text-orange-600",
+    bgColor: "bg-orange-50",
+    borderColor: "border-orange-200",
+    dbTable: "department",
+    requiredColumns: ["department_id", "department_name"],
+    excelHeaders: ["department_id", "department_name"],
+    columns: [
+      {
+        name: "department_id",
+        type: "NUMBER",
+        required: true,
+        description: "Unique integer ID for the department",
+        example: "1",
+      },
+      {
+        name: "department_name",
+        type: "TEXT",
+        required: true,
+        description: "Full name of the department",
+        example: "College of Engineering",
+      },
+    ],
+  },
   student: {
     label: "Students",
     icon: Users,
@@ -130,8 +157,8 @@ const TABLE_SCHEMAS: Record<TableType, TableSchema> = {
     bgColor: "bg-emerald-50",
     borderColor: "border-emerald-200",
     dbTable: "teacher",
-    requiredColumns: ["rank", "name", "department", "total_periods_assigned"],
-    excelHeaders: ["rank", "name", "department", "total_periods_assigned"],
+    requiredColumns: ["rank", "name", "department_id"],
+    excelHeaders: ["rank", "name", "department_id", "total_periods_assigned"],
     columns: [
       {
         name: "rank",
@@ -148,17 +175,17 @@ const TABLE_SCHEMAS: Record<TableType, TableSchema> = {
         example: "Dr. Maria Santos",
       },
       {
-        name: "department",
-        type: "TEXT",
+        name: "department_id",
+        type: "NUMBER",
         required: true,
-        description: "Department the teacher belongs to",
-        example: "College of Engineering",
+        description: "ID of the department — must match an existing department_id",
+        example: "1",
       },
       {
         name: "total_periods_assigned",
         type: "NUMBER",
-        required: true,
-        description: "Invigilation periods already assigned",
+        required: false,
+        description: "Invigilation periods already assigned (defaults to 0)",
         example: "0",
       },
     ],
@@ -196,6 +223,7 @@ const TABLE_SCHEMAS: Record<TableType, TableSchema> = {
       "start_time",
       "end_time",
       "day_of_week",
+      "department_id",
     ],
     columns: [
       {
@@ -235,17 +263,17 @@ const TABLE_SCHEMAS: Record<TableType, TableSchema> = {
       },
       {
         name: "semester",
-        type: "TEXT",
+        type: "NUMBER (1 or 2)",
         required: true,
         description: "Semester the exam belongs to",
-        example: "1st Semester",
+        example: "1",
       },
       {
         name: "year_level",
-        type: "TEXT",
+        type: "NUMBER (1–4)",
         required: true,
         description: "Target year level",
-        example: "2nd Year",
+        example: "2",
       },
       {
         name: "program",
@@ -282,6 +310,13 @@ const TABLE_SCHEMAS: Record<TableType, TableSchema> = {
         description: "Day of the week",
         example: "Monday",
       },
+      {
+        name: "department_id",
+        type: "NUMBER",
+        required: false,
+        description: "ID of the department — must match an existing department_id (optional)",
+        example: "1",
+      },
     ],
   },
 };
@@ -316,6 +351,16 @@ function validateRows(rows: Record<string, any>[], tableType: TableType) {
         rowErrors.push(`Row ${rowNum}: "${col}" is required but missing.`);
     });
 
+    if (tableType === "department") {
+      const id = Number(row.department_id);
+      if (isNaN(id) || id <= 0)
+        rowErrors.push(`Row ${rowNum}: "department_id" must be a positive integer.`);
+      else row.department_id = id;
+
+      if (row.department_name)
+        row.department_name = String(row.department_name).trim();
+    }
+
     if (tableType === "student") {
       const yl = Number(row.year_level);
       if (isNaN(yl) || yl < 1 || yl > 4)
@@ -346,10 +391,26 @@ function validateRows(rows: Record<string, any>[], tableType: TableType) {
     }
 
     if (tableType === "teacher") {
-      const p = Number(row.total_periods_assigned);
-      if (isNaN(p) || p < 0)
-        rowErrors.push(`Row ${rowNum}: "total_periods_assigned" must be >= 0.`);
-      else row.total_periods_assigned = p;
+      // Validate department_id as a positive integer
+      const deptId = Number(row.department_id);
+      if (isNaN(deptId) || deptId <= 0)
+        rowErrors.push(`Row ${rowNum}: "department_id" must be a positive integer.`);
+      else row.department_id = deptId;
+
+      if (
+        row.total_periods_assigned !== undefined &&
+        row.total_periods_assigned !== null &&
+        row.total_periods_assigned !== ""
+      ) {
+        const p = Number(row.total_periods_assigned);
+        if (isNaN(p) || p < 0)
+          rowErrors.push(
+            `Row ${rowNum}: "total_periods_assigned" must be >= 0.`,
+          );
+        else row.total_periods_assigned = p;
+      } else {
+        row.total_periods_assigned = 0;
+      }
     }
 
     if (tableType === "exam") {
@@ -371,6 +432,29 @@ function validateRows(rows: Record<string, any>[], tableType: TableType) {
             );
         }
       }
+
+      // Coerce semester and year_level to integers
+      if (row.semester !== undefined && row.semester !== null && row.semester !== "") {
+        const sem = Number(row.semester);
+        if (isNaN(sem)) warnings.push(`Row ${rowNum}: "semester" should be a number. Found: ${row.semester}`);
+        else row.semester = sem;
+      }
+      if (row.year_level !== undefined && row.year_level !== null && row.year_level !== "") {
+        const yl = Number(row.year_level);
+        if (isNaN(yl)) warnings.push(`Row ${rowNum}: "year_level" should be a number. Found: ${row.year_level}`);
+        else row.year_level = yl;
+      }
+
+      // Validate optional department_id
+      if (row.department_id !== undefined && row.department_id !== null && row.department_id !== "") {
+        const deptId = Number(row.department_id);
+        if (isNaN(deptId) || deptId <= 0)
+          rowErrors.push(`Row ${rowNum}: "department_id" must be a positive integer if provided.`);
+        else row.department_id = deptId;
+      } else {
+        row.department_id = null;
+      }
+
       if (!row.specialization) row.specialization = null;
     }
 
@@ -492,6 +576,9 @@ const SchemaHintCard: React.FC<{ tableType: TableType }> = ({ tableType }) => {
                 <strong>Tip:</strong> Column order in your Excel file doesn't
                 matter, but every header name must match exactly. Download the
                 Sample to get a ready-to-fill template.
+                {(tableType === "teacher" || tableType === "exam") && (
+                  <> For <strong>department_id</strong>, the value must match an existing department's ID.</>
+                )}
               </span>
             </p>
           </div>
@@ -835,10 +922,13 @@ const defaultUploadState = (): UploadState => ({
   successCount: 0,
 });
 
+const TABLE_ORDER: TableType[] = ["department", "student", "teacher", "exam"];
+
 const InsertDataPage: React.FC = () => {
   const [uploadStates, setUploadStates] = useState<
     Record<TableType, UploadState>
   >({
+    department: defaultUploadState(),
     student: defaultUploadState(),
     teacher: defaultUploadState(),
     exam: defaultUploadState(),
@@ -891,17 +981,23 @@ const InsertDataPage: React.FC = () => {
     if (!state.parsedData.length) return;
     updateState(tableType, { status: "uploading" });
     const schema = TABLE_SCHEMAS[tableType];
+
     try {
+      const rowsToInsert = [...state.parsedData];
+
       const CHUNK = 500;
       let inserted = 0;
-      for (let i = 0; i < state.parsedData.length; i += CHUNK) {
+      for (let i = 0; i < rowsToInsert.length; i += CHUNK) {
         const { error } = await supabase
           .from(schema.dbTable)
-          .insert(state.parsedData.slice(i, i + CHUNK));
+          .insert(rowsToInsert.slice(i, i + CHUNK));
         if (error) throw new Error(error.message);
-        inserted += Math.min(CHUNK, state.parsedData.length - i);
+        inserted += Math.min(CHUNK, rowsToInsert.length - i);
       }
-      updateState(tableType, { status: "success", successCount: inserted });
+      updateState(tableType, {
+        status: "success",
+        successCount: inserted,
+      });
     } catch (e: any) {
       updateState(tableType, {
         status: "error",
@@ -924,7 +1020,7 @@ const InsertDataPage: React.FC = () => {
           <div>
             <h1 className="text-2xl font-bold text-foreground">Insert Data</h1>
             <p className="text-sm text-muted-foreground">
-              Bulk-import Students, Teachers, or Exams via Excel files
+              Bulk-import Departments, Students, Teachers, or Exams via Excel files
             </p>
           </div>
         </div>
@@ -939,18 +1035,20 @@ const InsertDataPage: React.FC = () => {
               required columns and formats.
             </p>
             <p>
-              2. Click <strong>Sample</strong> to download a pre-filled
-              template.
+              2. Click <strong>Sample</strong> to download a pre-filled template.
             </p>
             <p>
               3. Upload your completed file — data is validated and previewed
               before any insert happens.
             </p>
+            <p className="text-blue-700">
+              ⚠ <strong>Insert order matters:</strong> Upload <strong>Departments first</strong>, then Teachers and Exams (they reference department IDs).
+            </p>
           </div>
         </div>
 
         {/* Sections */}
-        {(["student", "teacher", "exam"] as TableType[]).map((tableType) => {
+        {TABLE_ORDER.map((tableType) => {
           const schema = TABLE_SCHEMAS[tableType];
           const Icon = schema.icon;
           return (

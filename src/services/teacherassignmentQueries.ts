@@ -11,6 +11,7 @@ import {
   SUPERVISOR_RANKS,
   ASSISTANT_RANKS,
 } from "./teacherAssignmentTypes";
+import { AssignmentRankConfig } from "./rankConfig";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bulk-assign pre-fetched context
@@ -25,19 +26,15 @@ import {
 //     cannot use upsert. We delete by (link_id, role) then insert fresh.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Add allTeachers to the interface
 export interface BulkAssignContext {
   roomIdByNumber: Map<string, number>;
   roomIdByExamRoomId: Map<number, number>;
-
-  // date → Set<exam_room_id> active on that date
   examRoomIdsByDate: Map<string, Set<number>>;
-
-  // "roomNumber|date" → { examRoomId, linkId }
-  // One representative primary link per room+date — enough to scope a teacher slot.
   resolvedByRoomDate: Map<string, { examRoomId: number; linkId: number }>;
-
-  supervisors: TeacherWithAvailability[];
-  assistants: TeacherWithAvailability[];
+  supervisors: TeacherWithAvailability[];   // kept for backward compat
+  assistants: TeacherWithAvailability[];    // kept for backward compat
+  allTeachers: TeacherWithAvailability[];   // ← ADD THIS
   busyByDate: Map<string, Set<number>>;
 }
 
@@ -128,16 +125,18 @@ export const teacherAssignmentQueries = {
   },
 
   // ── Pre-fetch everything needed for bulk assign (called ONCE) ─────────────
-  async prefetchBulkContext(dates: string[]): Promise<BulkAssignContext> {
-    const empty: BulkAssignContext = {
-      roomIdByNumber: new Map(),
-      roomIdByExamRoomId: new Map(),
-      examRoomIdsByDate: new Map(),
-      resolvedByRoomDate: new Map(),
-      supervisors: [],
-      assistants: [],
-      busyByDate: new Map(),
-    };
+  async prefetchBulkContext(dates: string[],  rankConfig: AssignmentRankConfig,  // ← ADD
+): Promise<BulkAssignContext> {
+   const empty: BulkAssignContext = {
+  roomIdByNumber: new Map(),
+  roomIdByExamRoomId: new Map(),
+  examRoomIdsByDate: new Map(),
+  resolvedByRoomDate: new Map(),
+  supervisors: [],
+  assistants: [],
+  allTeachers: [],   // ← ADD THIS
+  busyByDate: new Map(),
+};
     if (dates.length === 0) return empty;
 
     // 1. All physical rooms
@@ -256,12 +255,15 @@ export const teacherAssignmentQueries = {
       workload_level: getWorkloadLevel(t.total_periods_assigned),
     });
 
-    const supervisors = allEnriched
-      .filter((t) => new Set(SUPERVISOR_RANKS).has(t.rank))
-      .map(baseAvailability);
-    const assistants = allEnriched
-      .filter((t) => new Set(ASSISTANT_RANKS).has(t.rank))
-      .map(baseAvailability);
+const allTeachersAvailable = allEnriched.map(baseAvailability);
+
+// Keep supervisors/assistants for backward compat (AutoAssignModal still uses them)
+const supervisors = allTeachersAvailable.filter((t) =>
+  new Set(SUPERVISOR_RANKS).has(t.rank),
+);
+const assistants = allTeachersAvailable.filter((t) =>
+  new Set(ASSISTANT_RANKS).has(t.rank),
+);
 
     // 6. Existing assignments on those dates → seed busyByDate
     const { data: existing, error: existingErr } = await supabase
@@ -276,15 +278,16 @@ export const teacherAssignmentQueries = {
       busyByDate.get(a.exam_date)!.add(a.teacher_id as number);
     });
 
-    return {
-      roomIdByNumber,
-      roomIdByExamRoomId,
-      examRoomIdsByDate,
-      resolvedByRoomDate,
-      supervisors,
-      assistants,
-      busyByDate,
-    };
+   return {
+  roomIdByNumber,
+  roomIdByExamRoomId,
+  examRoomIdsByDate,
+  resolvedByRoomDate,
+  supervisors,
+  assistants,
+  allTeachers: allTeachersAvailable,   // ← ADD THIS
+  busyByDate,
+};
   },
 
   // ── Resolve { examRoomId, linkId } from context (no DB call) ─────────────

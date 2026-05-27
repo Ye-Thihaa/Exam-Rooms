@@ -8,7 +8,7 @@ export interface SeatingAssignmentInput {
   seat_number: string;
   row_label: string;
   column_number: number;
-  student_group: "A" | "B"; // A for primary group, B for secondary group
+  student_group: "A" | "B";
 }
 
 export interface SeatingAssignmentWithStudent {
@@ -18,7 +18,7 @@ export interface SeatingAssignmentWithStudent {
   seat_number: string;
   row_label: string;
   column_number: number;
-  student_group: "A" | "B"; // A for primary group, B for secondary group
+  student_group: "A" | "B";
   assigned_at: string;
   student: {
     student_id: number;
@@ -32,7 +32,8 @@ export interface SeatingAssignmentWithStudent {
 }
 
 /**
- * Fetch unassigned students for a specific group
+ * Fetch unassigned students for a specific group.
+ * program should be the short code (CST, CS, CT) matching the student table's major field.
  */
 export async function getUnassignedStudentsByGroup(
   yearLevel: number,
@@ -42,21 +43,10 @@ export async function getUnassignedStudentsByGroup(
   limit?: number,
 ) {
   try {
-    // Map program codes back to full program names for database query
-    // The database stores full names in 'major' field, not codes
-    const programMapping: Record<string, string> = {
-      CST: "Computer Science and Technology",
-      CS: "Computer Science",
-      CT: "Computer Technology",
-    };
-
-    const programName = programMapping[program] || program;
-
     console.log("Querying with:", {
       yearLevel,
       semester,
       program,
-      programName,
       specialization,
       limit,
     });
@@ -66,7 +56,7 @@ export async function getUnassignedStudentsByGroup(
       .select("*")
       .eq("year_level", yearLevel)
       .eq("sem", semester)
-      .eq("major", programName)
+      .eq("major", program)
       .eq("is_assigned", false);
 
     if (specialization) {
@@ -77,13 +67,13 @@ export async function getUnassignedStudentsByGroup(
       query = query.limit(limit);
     }
 
-    query = query.order("student_number", { ascending: true });
+    query = query.order("student_id", { ascending: true });
 
     const { data, error } = await query;
 
     if (error) throw error;
 
-    console.log(`Found ${data?.length || 0} students for ${programName}`);
+    console.log(`Found ${data?.length || 0} students for ${program}`);
 
     return { success: true, data: data || [] };
   } catch (error) {
@@ -103,7 +93,18 @@ export async function saveSeatingAssignments(
 
     if (error) throw error;
 
-    // Trigger will automatically set stu_assigned to true
+    // ← ADD: mark all assigned students so they won't be picked again
+    const studentIds = [...new Set(assignments.map((a) => a.student_id))];
+    const { error: updateError } = await supabase
+      .from("student")
+      .update({ is_assigned: true })
+      .in("student_id", studentIds);
+
+    if (updateError) {
+      console.error("Error marking students as assigned:", updateError);
+      // Don't throw — seating was saved successfully, this is a secondary update
+    }
+
     return { success: true, data };
   } catch (error) {
     console.error("Error saving seating assignments:", error);
@@ -188,6 +189,12 @@ export async function getSeatingAssignmentsByGroup(
  */
 export async function clearSeatingAssignments(examRoomId: number) {
   try {
+    // First get the student IDs so we can unmark them
+    const { data: existing } = await supabase
+      .from("seating_assignment")
+      .select("student_id")
+      .eq("exam_room_id", examRoomId);
+
     const { error } = await supabase
       .from("seating_assignment")
       .delete()
@@ -195,7 +202,15 @@ export async function clearSeatingAssignments(examRoomId: number) {
 
     if (error) throw error;
 
-    // Trigger will automatically set stu_assigned to false
+    // ← ADD: unmark students so they become available again
+    if (existing && existing.length > 0) {
+      const studentIds = existing.map((r: any) => r.student_id);
+      await supabase
+        .from("student")
+        .update({ is_assigned: false })
+        .in("student_id", studentIds);
+    }
+
     return { success: true };
   } catch (error) {
     console.error("Error clearing seating assignments:", error);

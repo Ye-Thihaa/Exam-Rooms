@@ -1,6 +1,3 @@
-// services/dangerZoneService.ts
-// ⚠️ DANGER ZONE SERVICE — Handles irreversible database purge operations.
-
 import supabase from "@/utils/supabase"; // adjust path as needed
 
 export interface DeleteResult {

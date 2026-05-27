@@ -11,14 +11,31 @@ export interface Teacher {
 export const teacherQueries = {
   // Get all teachers
   async getAll() {
-    const { data, error } = await supabase
-      .from("teacher")
-      .select("*")
-      .order("name", { ascending: true });
+  const { data, error } = await supabase
+    .from("teacher")
+    .select(`
+      teacher_id,
+      rank,
+      name,
+      total_periods_assigned,
+      department_id,
+      department (
+        department_name
+      )
+    `)
+    .order("name", { ascending: true });
 
-    if (error) throw error;
-    return data as Teacher[];
-  },
+  if (error) throw error;
+
+  // Flatten department_name into the department field
+  return data.map((t: any) => ({
+    teacher_id: t.teacher_id,
+    rank: t.rank,
+    name: t.name,
+    total_periods_assigned: t.total_periods_assigned,
+    department: t.department?.department_name ?? "Undeclared",
+  })) as Teacher[];
+},
 
   // Get teacher by ID
   async getById(teacherId: number) {

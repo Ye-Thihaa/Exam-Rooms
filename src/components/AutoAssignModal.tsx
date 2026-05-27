@@ -11,53 +11,32 @@ import {
   UserX,
 } from "lucide-react";
 import { teacherAssignmentQueries } from "@/services/teacherassignmentQueries";
-import {
+import type {
   TeacherRole,
   ExamSession,
   TeacherWithAvailability,
 } from "@/services/teacherAssignmentTypes";
+import type { AssignmentRankConfig } from "@/services/rankConfig";
 
-// ─── Export type used by ExamsOverview ────────────────────────────────────────
-export type RankPeriodLimits = Record<string, number>;
+// ─── Re-export so existing imports of RankPeriodLimits still work ─────────────
+export type { RankPeriodLimits } from "@/services/rankConfig";
 
-const getPeriodLimit = (rank: string, limits: RankPeriodLimits): number =>
-  limits[rank] ?? Infinity;
+// ─────────────────────────────────────────────────────────────────────────────
+// Algorithm — fully driven by AssignmentRankConfig
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ─── Rank order (higher = more senior) ───────────────────────────────────────
-const RANK_ORDER: Record<string, number> = {
-  "Associate Professor": 4,
-  "Lecturer": 3,
-  "Associate Lecturer": 2,
-  "Tutor": 1,
-};
-
-// ─── Rank pairing order (supervisor → assistant, strictly higher → lower) ────
-const SUPERVISOR_ASSISTANT_PAIRS: Array<[string, string]> = [
-  ["Associate Professor", "Lecturer"],
-  ["Associate Professor", "Associate Lecturer"],
-  ["Associate Professor", "Tutor"],
-  ["Lecturer", "Associate Lecturer"],
-  ["Lecturer", "Tutor"],
-  ["Associate Lecturer", "Tutor"],
-];
-
-function eligible(
-  t: TeacherWithAvailability,
-  limits: RankPeriodLimits,
-): boolean {
+function eligible(t: TeacherWithAvailability, cfg: AssignmentRankConfig): boolean {
+  const limit = cfg.periodLimits[t.rank];
   return (
     t.availability.is_available &&
-    (limits[t.rank] === undefined ||
-      (t.total_periods_assigned ?? 0) < limits[t.rank])
+    (limit === undefined || (t.total_periods_assigned ?? 0) < limit)
   );
 }
 
 function minWorkload(pool: TeacherWithAvailability[]): TeacherWithAvailability {
-  return pool.reduce((best, t) =>
-    (t.total_periods_assigned ?? 0) < (best.total_periods_assigned ?? 0)
-      ? t
-      : best,
-  );
+  const minLoad = Math.min(...pool.map((t) => t.total_periods_assigned ?? 0));
+  const tied = pool.filter((t) => (t.total_periods_assigned ?? 0) === minLoad);
+  return tied[Math.floor(Math.random() * tied.length)];
 }
 
 type PairResult = {
@@ -69,85 +48,56 @@ type PairResult = {
 function pickPairedTeachers(
   supervisors: TeacherWithAvailability[],
   assistants: TeacherWithAvailability[],
-  limits: RankPeriodLimits,
+  cfg: AssignmentRankConfig,
 ): PairResult {
-  const VALID_SUP_RANKS = new Set(SUPERVISOR_ASSISTANT_PAIRS.map(([s]) => s));
-  const VALID_ASST_RANKS = new Set(SUPERVISOR_ASSISTANT_PAIRS.map(([, a]) => a));
+  const supervisorRanks = new Set(
+    cfg.ranks.filter((r) => r.canSupervise).map((r) => r.name),
+  );
+  const assistantRanks = new Set(
+    cfg.ranks.filter((r) => r.canAssist).map((r) => r.name),
+  );
 
   const eSups = supervisors.filter(
-    (t) => VALID_SUP_RANKS.has(t.rank) && eligible(t, limits),
+    (t) => supervisorRanks.has(t.rank) && eligible(t, cfg),
   );
   const eAssts = assistants.filter(
-    (t) => VALID_ASST_RANKS.has(t.rank) && eligible(t, limits),
+    (t) => assistantRanks.has(t.rank) && eligible(t, cfg),
   );
 
-  // Try valid pairs in priority order
-  for (const [supRank, asstRank] of SUPERVISOR_ASSISTANT_PAIRS) {
-    const sCandidates = eSups.filter((t) => t.rank === supRank);
-    const aCandidates = eAssts.filter(
-      (t) =>
-        t.rank === asstRank &&
-        (RANK_ORDER[t.rank] ?? 0) < (RANK_ORDER[supRank] ?? 0),
-    );
-    if (sCandidates.length === 0 || aCandidates.length === 0) continue;
+  if (eSups.length === 0) return { supervisor: null, assistant: null, pairLabel: null };
 
-    const supervisor = minWorkload(sCandidates);
-    const aBase = aCandidates.filter(
-      (t) => t.teacher_id !== supervisor.teacher_id,
+  // Find first viable pairing rule that has eligible teachers on both sides
+  for (const rule of cfg.pairingRules) {
+    const supCandidates = eSups.filter((t) => t.rank === rule.supervisorRank);
+    const asstCandidates = eAssts.filter((t) => t.rank === rule.assistantRank);
+    if (supCandidates.length === 0 || asstCandidates.length === 0) continue;
+
+    const supervisor = minWorkload(supCandidates);
+    supervisor.total_periods_assigned = (supervisor.total_periods_assigned ?? 0) + 1;
+
+    const asstFiltered = asstCandidates.filter(
+      (t) => t.teacher_id !== supervisor.teacher_id && eligible(t, cfg),
     );
-    if (aBase.length === 0) continue;
-    const assistant = minWorkload(aBase);
+    if (asstFiltered.length === 0) continue;
+
+    const assistant = minWorkload(asstFiltered);
+    assistant.total_periods_assigned = (assistant.total_periods_assigned ?? 0) + 1;
 
     return {
       supervisor,
       assistant,
-      pairLabel: `${supRank} + ${asstRank}`,
+      pairLabel: `${rule.supervisorRank} + ${rule.assistantRank}`,
     };
   }
 
-  // Fallback: best available supervisor + any lower-rank assistant
-  if (eSups.length > 0) {
-    const supervisor = minWorkload(eSups);
-
-    const lowerRankAssts = eAssts.filter(
-      (t) =>
-        t.teacher_id !== supervisor.teacher_id &&
-        (RANK_ORDER[t.rank] ?? 0) < (RANK_ORDER[supervisor.rank] ?? 0),
-    );
-
-    if (lowerRankAssts.length > 0) {
-      const assistant = minWorkload(lowerRankAssts);
-      return {
-        supervisor,
-        assistant,
-        pairLabel: `${supervisor.rank} + ${assistant.rank} (fallback)`,
-      };
-    }
-
-    // Last resort: AP + AP only when no lower-rank assistant exists
-    if (supervisor.rank === "Associate Professor") {
-      const apAssts = assistants.filter(
-        (t) =>
-          t.rank === "Associate Professor" &&
-          t.teacher_id !== supervisor.teacher_id &&
-          eligible(t, limits),
-      );
-      if (apAssts.length > 0) {
-        const assistant = minWorkload(apAssts);
-        return {
-          supervisor,
-          assistant,
-          pairLabel: "AP + AP (last resort)",
-        };
-      }
-    }
-
-    return { supervisor, assistant: null, pairLabel: null };
-  }
-
-  return { supervisor: null, assistant: null, pairLabel: null };
+  // Fallback: best supervisor alone
+  const supervisor = minWorkload(eSups);
+  supervisor.total_periods_assigned = (supervisor.total_periods_assigned ?? 0) + 1;
+  return { supervisor, assistant: null, pairLabel: null };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Props & types
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface AutoAssignModalProps {
@@ -156,7 +106,8 @@ interface AutoAssignModalProps {
   examDate: string;
   examSession: ExamSession;
   examTime?: { start: string; end: string };
-  rankLimits: RankPeriodLimits;
+  /** Full rank config — replaces the old rankLimits prop */
+  rankConfig: AssignmentRankConfig;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -171,18 +122,16 @@ type AssignResult = {
 
 const RoleResultCard: React.FC<{
   result: AssignResult;
-  limits: RankPeriodLimits;
-}> = ({ result, limits }) => {
+  cfg: AssignmentRankConfig;
+}> = ({ result, cfg }) => {
   const { role, teacher, reason } = result;
-  const limit = teacher ? getPeriodLimit(teacher.rank, limits) : null;
+  const limit = teacher ? (cfg.periodLimits[teacher.rank] ?? Infinity) : null;
   const assigned = teacher?.total_periods_assigned ?? 0;
 
   return (
     <div
       className={`flex items-center gap-4 p-4 rounded-xl border ${
-        teacher
-          ? "bg-emerald-50 border-emerald-200"
-          : "bg-amber-50 border-amber-200"
+        teacher ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"
       }`}
     >
       <div
@@ -203,8 +152,7 @@ const RoleResultCard: React.FC<{
           </span>
           {teacher && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-200 text-emerald-800">
-              <CheckCircle2 className="h-3 w-3" />
-              Auto-selected
+              <CheckCircle2 className="h-3 w-3" /> Auto-selected
             </span>
           )}
         </div>
@@ -216,8 +164,8 @@ const RoleResultCard: React.FC<{
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {limit === Infinity
-                ? `${assigned + 1} period${assigned + 1 !== 1 ? "s" : ""} after assignment`
-                : `${assigned + 1} / ${limit} after assignment`}
+                ? `${assigned} period${assigned !== 1 ? "s" : ""} total after assignment`
+                : `${assigned} / ${limit} after assignment`}
             </p>
           </>
         ) : (
@@ -239,7 +187,7 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
   examDate,
   examSession,
   examTime,
-  rankLimits,
+  rankConfig,
   onClose,
   onSuccess,
 }) => {
@@ -253,9 +201,7 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
 
   const effectiveSession: ExamSession = examSession || "Morning";
 
-  useEffect(() => {
-    loadAndPreview();
-  }, []);
+  useEffect(() => { loadAndPreview(); }, []);
 
   const loadAndPreview = async () => {
     setLoading(true);
@@ -263,34 +209,21 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
     try {
       let currentId = examRoomId;
       const correctId = await teacherAssignmentQueries.getCorrectExamRoomId(
-        roomNumber,
-        examDate,
-        effectiveSession,
+        roomNumber, examDate, effectiveSession,
       );
-      if (correctId) {
-        currentId = correctId;
-        setActiveExamRoomId(correctId);
-      }
+      if (correctId) { currentId = correctId; setActiveExamRoomId(correctId); }
 
       const [supervisors, assistants] = await Promise.all([
         teacherAssignmentQueries.getAvailableTeachersWithSession(
-          currentId,
-          "Supervisor",
-          examDate,
-          effectiveSession,
+          currentId, "Supervisor", examDate, effectiveSession,
         ),
         teacherAssignmentQueries.getAvailableTeachersWithSession(
-          currentId,
-          "Assistant",
-          examDate,
-          effectiveSession,
+          currentId, "Assistant", examDate, effectiveSession,
         ),
       ]);
 
       const { supervisor, assistant, pairLabel: label } = pickPairedTeachers(
-        supervisors,
-        assistants,
-        rankLimits,
+        supervisors, assistants, rankConfig,
       );
       setPairLabel(label);
 
@@ -299,7 +232,7 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
           ? "No supervisors found in database"
           : supervisors.every((t) => !t.availability.is_available)
             ? "All teachers are already assigned today"
-            : "All eligible teachers have reached their period limit"
+            : "All eligible teachers have reached their period limit or rank is not configured as supervisor"
         : undefined;
 
       const asstReason = !assistant
@@ -307,7 +240,7 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
           ? "No assistants found in database"
           : assistants.every((t) => !t.availability.is_available)
             ? "All assistants are already assigned today"
-            : "All eligible assistants have reached their period limit"
+            : "All eligible assistants have reached their period limit or rank is not configured as assistant"
         : undefined;
 
       setResults([
@@ -332,9 +265,7 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
     try {
       for (const r of toAssign) {
         await teacherAssignmentQueries.deleteByRoomAndRole(
-          activeExamRoomId,
-          r.role,
-          examDate,
+          activeExamRoomId, r.role, examDate,
         );
         await teacherAssignmentQueries.create(
           activeExamRoomId,
@@ -348,10 +279,7 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
       }
       setSuccessMessage("Assignments saved successfully!");
       onSuccess();
-      setTimeout(() => {
-        setSuccessMessage(null);
-        onClose();
-      }, 1500);
+      setTimeout(() => { setSuccessMessage(null); onClose(); }, 1500);
     } catch (err: any) {
       setError(err.message || "Failed to save assignments");
     } finally {
@@ -361,9 +289,15 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
 
   const canConfirm = results.some((r) => r.teacher !== null);
 
+  // ── Pairing summary for display ───────────────────────────────────────────
+  const pairingSummary = rankConfig.pairingRules
+    .map((p) => `${p.supervisorRank.split(" ")[0]}→${p.assistantRank.split(" ")[0]}`)
+    .join(", ");
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white border rounded-xl max-w-lg w-full shadow-2xl flex flex-col">
+
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-primary/5 to-transparent rounded-t-xl">
           <div className="flex items-center gap-3">
@@ -371,9 +305,7 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
               <Zap className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-gray-900">
-                Auto-Assign Invigilators
-              </h2>
+              <h2 className="text-base font-bold text-gray-900">Auto-Assign Invigilators</h2>
               <p className="text-xs text-muted-foreground">
                 {roomNumber} · {examDate} · {effectiveSession}
               </p>
@@ -393,40 +325,42 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
             </div>
           ) : (
             <>
+              {/* Config summary */}
               <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-100">
                 <ShieldCheck className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                <div className="text-xs text-blue-700 space-y-0.5">
-                  <p className="font-semibold">
-                    Pairing: AP→L, AP→AL, AP→T, L→AL, L→T, AL→T · AP→AP (last resort only)
-                  </p>
-                  {Object.keys(rankLimits).length > 0 && (
-                    <p>
-                      Period limits:{" "}
-                      {Object.entries(rankLimits)
-                        .map(([rank, limit]) => `${rank} (${limit})`)
-                        .join(", ")}
-                    </p>
-                  )}
+                <div className="text-xs text-blue-700 space-y-1">
+                  <p className="font-semibold">Active rank configuration:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {rankConfig.ranks.map((r) => (
+                      <span
+                        key={r.name}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-800"
+                      >
+                        {r.name}
+                        {r.canSupervise && <span className="text-blue-500" title="Supervisor">S</span>}
+                        {r.canAssist && <span className="text-purple-500" title="Assistant">A</span>}
+                        {r.periodLimit > 0 && <span className="text-gray-500">·{r.periodLimit}</span>}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-blue-600">Pairings: {pairingSummary || "None configured"}</p>
                 </div>
               </div>
 
               {pairLabel && (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/10">
-                  <span className="text-xs font-semibold text-primary">
-                    Selected pairing:
-                  </span>
+                  <span className="text-xs font-semibold text-primary">Selected pairing:</span>
                   <span className="text-xs text-muted-foreground">{pairLabel}</span>
                 </div>
               )}
 
               <p className="text-sm text-muted-foreground">
-                Review the suggested pair below. The system picked according to
-                rank pairing rules and lowest current workload.
+                Review the suggested pair below. The system picked according to your configured rank rules and lowest current workload.
               </p>
 
               <div className="space-y-3">
                 {results.map((r) => (
-                  <RoleResultCard key={r.role} result={r} limits={rankLimits} />
+                  <RoleResultCard key={r.role} result={r} cfg={rankConfig} />
                 ))}
               </div>
 
@@ -459,11 +393,7 @@ const AutoAssignModal: React.FC<AutoAssignModalProps> = ({
               disabled={submitting || !canConfirm}
               className="gap-2"
             >
-              {submitting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <UserCheck className="h-4 w-4" />
-              )}
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
               {submitting ? "Saving…" : "Confirm Assignment"}
             </Button>
           </div>

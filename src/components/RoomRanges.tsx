@@ -79,21 +79,28 @@ const RoomRangesEnhanced: React.FC = () => {
     }
   };
 
-  const calculateRange = (
-    assignments: SeatingAssignmentWithDetails[],
-  ): StudentRange | null => {
-    if (assignments.length === 0) return null;
-    const studentNumbers = assignments
-      .map((a) => a.student?.student_number)
-      .filter((num): num is string => !!num)
-      .sort();
-    if (studentNumbers.length === 0) return null;
-    return {
-      min: studentNumbers[0],
-      max: studentNumbers[studentNumbers.length - 1],
-      count: studentNumbers.length,
-    };
+  // ✅ AFTER — numeric suffix sort: extracts the trailing number from any prefix
+const extractTrailingNumber = (s: string): number => {
+  const parts = s.split("_");
+  const num = parseInt(parts[parts.length - 1], 10);
+  return isNaN(num) ? 0 : num;
+};
+
+const calculateRange = (
+  assignments: SeatingAssignmentWithDetails[],
+): StudentRange | null => {
+  if (assignments.length === 0) return null;
+  const studentNumbers = assignments
+    .map((a) => a.student?.student_number)
+    .filter((num): num is string => !!num)
+    .sort((a, b) => extractTrailingNumber(a) - extractTrailingNumber(b)); // numeric sort
+  if (studentNumbers.length === 0) return null;
+  return {
+    min: studentNumbers[0],
+    max: studentNumbers[studentNumbers.length - 1],
+    count: studentNumbers.length,
   };
+};
 
   const formatGroupInfo = (
     examRoom: ExamRoomWithDetails,

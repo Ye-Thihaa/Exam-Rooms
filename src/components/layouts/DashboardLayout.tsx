@@ -8,7 +8,6 @@ import {
   LogOut,
   Menu,
   X,
-  GraduationCap,
   Shield,
   Settings,
   ChevronDown,
@@ -26,6 +25,7 @@ import {
   ClipboardEdit,
   ChevronRight,
 } from "lucide-react";
+import { UiTLogo } from "@/components/UitLogo";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Static data
@@ -107,10 +107,8 @@ const roleLabels: Record<string, string> = {
   exam_officer: "Exam Officer",
 };
 
-const navSections: Record<
-  string,
-  { title: string; icon: React.ElementType; items: string[] }[]
-> = {
+const navSections: Record<string, { title: string; icon: React.ElementType; items: string[] }[]> = {
+
   exam_officer: [
     {
       title: "Overview",
@@ -168,7 +166,6 @@ const SidebarNav: React.FC<SidebarNavProps> = ({ role, onNavigate }) => {
 
   const sections = navSections[role] || [];
 
-  // Only open the section that contains the current route on first render
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(
     () =>
       Object.fromEntries(
@@ -176,7 +173,6 @@ const SidebarNav: React.FC<SidebarNavProps> = ({ role, onNavigate }) => {
       ),
   );
 
-  // When navigating to a new route, open its section — but leave others as-is
   const prevPathnameRef = useRef(pathname);
   useEffect(() => {
     if (prevPathnameRef.current === pathname) return;
@@ -228,15 +224,10 @@ const SidebarNav: React.FC<SidebarNavProps> = ({ role, onNavigate }) => {
         }
         onClick={onNavigate}
       >
-        {/* Active left accent bar */}
         {active && (
           <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-sidebar-primary-foreground/60" />
         )}
-        <item.icon
-          className={`h-4 w-4 flex-shrink-0 transition-all duration-150 ${
-            active ? "opacity-100" : "opacity-100"
-          }`}
-        />
+        <item.icon className="h-4 w-4 flex-shrink-0" />
         <span className="truncate leading-none">{item.label}</span>
       </NavLink>
     );
@@ -250,20 +241,12 @@ const SidebarNav: React.FC<SidebarNavProps> = ({ role, onNavigate }) => {
     >
       {sections.map((section) => {
         const isOpen = openSections[section.title];
-        // Check if any item in section is active (to highlight section header)
-        const hasActive = section.items.some((p) => isActive(p));
 
         return (
           <div key={section.title} className="mb-1">
-            {/* Section header — clickable, collapsible */}
             <button
               onClick={() => toggleSection(section.title)}
-              className={`
-                w-full flex items-center gap-2.5 px-3 py-2 rounded-lg
-                text-[11px] font-bold uppercase tracking-[0.1em]
-                transition-all duration-150 group
-                text-sidebar-foreground hover:bg-sidebar-accent/30
-              `}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-[0.1em] transition-all duration-150 group text-sidebar-foreground hover:bg-sidebar-accent/30"
             >
               <section.icon className="h-3.5 w-3.5 flex-shrink-0 opacity-80" />
               <span className="flex-1 text-left">{section.title}</span>
@@ -272,13 +255,11 @@ const SidebarNav: React.FC<SidebarNavProps> = ({ role, onNavigate }) => {
               />
             </button>
 
-            {/* Section items with animated reveal */}
             <div
               className={`overflow-hidden transition-all duration-200 ${
                 isOpen ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
               }`}
             >
-              {/* Vertical rule connecting items */}
               <div className="relative pl-[22px] ml-3 border-l border-sidebar-border/20 mt-0.5 mb-1 space-y-0.5">
                 {section.items.map((path) => {
                   const item = getItem(path);
@@ -367,13 +348,10 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
         `}
         style={{ background: "var(--gradient-sidebar)" }}
       >
-        {/* ── Brand header — bold, structured ── */}
+        {/* ── Brand header ── */}
         <div className="px-4 pt-5 pb-4 border-b border-sidebar-border/20">
           <div className="flex items-center gap-3">
-            {/* Icon block with strong presence */}
-            <div className="w-9 h-9 rounded-xl bg-sidebar-primary flex items-center justify-center flex-shrink-0 shadow-lg shadow-sidebar-primary/30">
-              <GraduationCap className="h-5 w-5 text-sidebar-primary-foreground" />
-            </div>
+            <UiTLogo size={36} className="flex-shrink-0 rounded-xl overflow-hidden" />
             <div>
               <p className="text-[15px] font-black tracking-tight text-sidebar-foreground leading-none">
                 ExamRoom
@@ -384,7 +362,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
             </div>
           </div>
 
-          {/* Role badge — structured pill */}
+          {/* Role badge */}
           <div className="mt-4 flex items-center justify-between">
             <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-sidebar-accent/30 border border-sidebar-border/20">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 shadow-sm shadow-green-400/50" />
@@ -398,17 +376,15 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
         {/* ── Nav ── */}
         <SidebarNav role={user.role} onNavigate={closeSidebar} />
 
-        {/* ── User footer — structured card ── */}
+        {/* ── User footer ── */}
         <div className="p-3 border-t border-sidebar-border/20">
           <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-sidebar-accent/20 border border-sidebar-border/15 group">
-            {/* Avatar with ring */}
             <div className="relative flex-shrink-0">
               <div className="w-8 h-8 rounded-full bg-sidebar-primary/20 border-2 border-sidebar-primary/30 flex items-center justify-center">
                 <User className="h-4 w-4 text-sidebar-foreground" />
               </div>
               <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-400 border-2 border-sidebar" />
             </div>
-
             <div className="flex-1 min-w-0">
               <p className="text-[12px] font-bold text-sidebar-foreground truncate leading-tight">
                 {user.name}
@@ -417,7 +393,6 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                 {user.email}
               </p>
             </div>
-
             <button
               onClick={handleLogout}
               title="Sign out"
@@ -445,7 +420,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
               )}
             </button>
             <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
-              <GraduationCap className="h-4 w-4" />
+              <UiTLogo size={18} />
               <span className="opacity-40">/</span>
               <span className="font-semibold text-foreground">
                 {roleLabels[user.role]} Portal

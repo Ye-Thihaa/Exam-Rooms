@@ -13,9 +13,15 @@ export interface Student {
   id?: number;
 }
 
+export interface StudentGroup {
+  year_level: number;
+  sem: number;
+  major: string;
+  specialization: string;
+}
+
 const TABLE_NAME = "student";
 
-// Helper to add id field to student objects
 function addIdField(student: Student): Student & { id: number } {
   return { ...student, id: student.student_id };
 }
@@ -23,9 +29,6 @@ function addIdField(student: Student): Student & { id: number } {
 const STUDENT_SELECT =
   "student_id, student_number, name, year_level, retake, major, sem, specialization, is_assigned";
 
-/**
- * Get total count of students in the database
- */
 export async function getTotalStudentCount(): Promise<number> {
   try {
     const { count, error } = await supabase
@@ -44,10 +47,6 @@ export async function getTotalStudentCount(): Promise<number> {
   }
 }
 
-/**
- * Get recent students from the database
- * @param limit - Number of students to fetch (default: 6)
- */
 export async function getRecentStudents(
   limit: number = 6,
 ): Promise<(Student & { id: number })[]> {
@@ -70,9 +69,6 @@ export async function getRecentStudents(
   }
 }
 
-/**
- * Get all students from the database
- */
 export async function getAllStudents(): Promise<(Student & { id: number })[]> {
   try {
     const { data, error } = await supabase
@@ -92,10 +88,6 @@ export async function getAllStudents(): Promise<(Student & { id: number })[]> {
   }
 }
 
-/**
- * Get a single student by ID
- * @param studentId - The student ID to fetch
- */
 export async function getStudentById(
   studentId: number,
 ): Promise<(Student & { id: number }) | null> {
@@ -118,9 +110,6 @@ export async function getStudentById(
   }
 }
 
-/**
- * Get students by year level
- */
 export async function getStudentsByYearLevel(
   yearLevel: number,
 ): Promise<(Student & { id: number })[]> {
@@ -143,9 +132,6 @@ export async function getStudentsByYearLevel(
   }
 }
 
-/**
- * Get students by major
- */
 export async function getStudentsByMajor(
   major: string,
 ): Promise<(Student & { id: number })[]> {
@@ -168,9 +154,6 @@ export async function getStudentsByMajor(
   }
 }
 
-/**
- * Get students by specialization
- */
 export async function getStudentsBySpecialization(
   specialization: string,
 ): Promise<(Student & { id: number })[]> {
@@ -193,9 +176,6 @@ export async function getStudentsBySpecialization(
   }
 }
 
-/**
- * Get retake students
- */
 export async function getRetakeStudents(): Promise<
   (Student & { id: number })[]
 > {
@@ -218,9 +198,6 @@ export async function getRetakeStudents(): Promise<
   }
 }
 
-/**
- * Search students by name
- */
 export async function searchStudentsByName(
   searchTerm: string,
 ): Promise<(Student & { id: number })[]> {
@@ -243,9 +220,6 @@ export async function searchStudentsByName(
   }
 }
 
-/**
- * Get dashboard statistics for students
- */
 export async function getStudentStatistics() {
   try {
     const [
@@ -310,9 +284,6 @@ export async function getStudentStatistics() {
   }
 }
 
-/**
- * Get unique semesters from all students
- */
 export async function getUniqueSemesters(): Promise<number[]> {
   try {
     const { data, error } = await supabase
@@ -334,9 +305,6 @@ export async function getUniqueSemesters(): Promise<number[]> {
   }
 }
 
-/**
- * Get unique year levels from all students
- */
 export async function getUniqueYearLevels(): Promise<number[]> {
   try {
     const { data, error } = await supabase
@@ -357,9 +325,6 @@ export async function getUniqueYearLevels(): Promise<number[]> {
   }
 }
 
-/**
- * Get unique majors from all students
- */
 export async function getUniqueMajors(): Promise<string[]> {
   try {
     const { data, error } = await supabase
@@ -381,9 +346,6 @@ export async function getUniqueMajors(): Promise<string[]> {
   }
 }
 
-/**
- * Get unique specializations from all students
- */
 export async function getUniqueSpecializations(): Promise<string[]> {
   try {
     const { data, error } = await supabase
@@ -407,15 +369,68 @@ export async function getUniqueSpecializations(): Promise<string[]> {
   }
 }
 
-// ========================================
-// NEW FUNCTIONS FOR PENDING ASSIGNMENT
-// ========================================
+/**
+ * NEW: Get distinct student groups (year_level, sem, major, specialization)
+ * that have at least one unassigned student — used to dynamically populate dropdowns
+ */
+export async function getDistinctStudentGroups(): Promise<StudentGroup[]> {
+  try {
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .select("year_level, sem, major, specialization")
+      .eq("is_assigned", false)
+      .not("major", "is", null)
+      .not("sem", "is", null);
+
+    if (error) {
+      console.error("Error fetching distinct student groups:", error);
+      return [];
+    }
+
+    const seen = new Set<string>();
+    return (data || []).filter((row) => {
+      const key = `${row.year_level}|${row.sem}|${row.major}|${row.specialization}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }) as StudentGroup[];
+  } catch (error) {
+    console.error("Error in getDistinctStudentGroups:", error);
+    return [];
+  }
+}
 
 /**
- * Mark students as pending assignment (temporary hold)
- * This prevents them from being selected for other rooms
- * @param studentIds - Array of student IDs to mark as pending
+ * NEW: Get unassigned student count for a specific group
  */
+export async function getUnassignedCountForGroup(
+  yearLevel: number,
+  sem: number,
+  major: string,
+  specialization: string,
+): Promise<number> {
+  try {
+    const { count, error } = await supabase
+      .from(TABLE_NAME)
+      .select("*", { count: "exact", head: true })
+      .eq("year_level", yearLevel)
+      .eq("sem", sem)
+      .eq("major", major)
+      .eq("specialization", specialization)
+      .eq("is_assigned", false);
+
+    if (error) {
+      console.error("Error fetching unassigned count for group:", error);
+      return 0;
+    }
+
+    return count || 0;
+  } catch (error) {
+    console.error("Error in getUnassignedCountForGroup:", error);
+    return 0;
+  }
+}
+
 export async function markStudentsAsPending(
   studentIds: number[],
 ): Promise<{ success: boolean; error?: any }> {
@@ -438,11 +453,6 @@ export async function markStudentsAsPending(
   }
 }
 
-/**
- * Release students from pending status
- * Used when user cancels the preview or navigates away
- * @param studentIds - Array of student IDs to release
- */
 export async function releaseStudentsFromPending(
   studentIds: number[],
 ): Promise<{ success: boolean; error?: any }> {

@@ -11,6 +11,13 @@ interface RoomFormModalProps {
   initialData?: Room | null;
 }
 
+type RoomTypeOption = "Standard" | "Hall";
+
+const ROOM_PRESETS: Record<RoomTypeOption, { capacity: string; rows: string; cols: string; room_type: string }> = {
+  Standard: { capacity: "36", rows: "6", cols: "6", room_type: "Standard" },
+  Hall:     { capacity: "82", rows: "82", cols: "1", room_type: "Hall" },
+};
+
 const RoomFormModal: React.FC<RoomFormModalProps> = ({
   isOpen,
   onClose,
@@ -20,7 +27,7 @@ const RoomFormModal: React.FC<RoomFormModalProps> = ({
 }) => {
   const [formData, setFormData] = useState({
     room_number: "",
-    capacity: "",
+    capacity: "36",
     room_type: "Standard",
     rows: "6",
     cols: "6",
@@ -39,24 +46,29 @@ const RoomFormModal: React.FC<RoomFormModalProps> = ({
           cols: initialData.cols?.toString() || "6",
         });
       } else {
+        // Default to Standard preset on create
         setFormData({
           room_number: "",
-          capacity: "",
-          room_type: "Standard",
-          rows: "6",
-          cols: "6",
+          ...ROOM_PRESETS.Standard,
         });
       }
       setErrors({});
     }
   }, [isOpen, mode, initialData]);
 
+  const handleRoomTypeSelect = (type: RoomTypeOption) => {
+    setFormData((prev) => ({
+      ...prev,
+      ...ROOM_PRESETS[type],
+    }));
+    setErrors({});
+  };
+
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
-    // Clear error for this field
     if (errors[name]) {
       setErrors((prev) => {
         const newErrors = { ...prev };
@@ -78,17 +90,14 @@ const RoomFormModal: React.FC<RoomFormModalProps> = ({
       newErrors.capacity = "Capacity must be a positive number";
     }
 
-    if (formData.rows || formData.cols) {
-      const rows = parseInt(formData.rows);
-      const cols = parseInt(formData.cols);
+    const rows = parseInt(formData.rows);
+    const cols = parseInt(formData.cols);
 
-      if (!formData.rows || isNaN(rows) || rows <= 0) {
-        newErrors.rows = "Rows must be a positive number";
-      }
-
-      if (!formData.cols || isNaN(cols) || cols <= 0) {
-        newErrors.cols = "Columns must be a positive number";
-      }
+    if (!formData.rows || isNaN(rows) || rows <= 0) {
+      newErrors.rows = "Rows must be a positive number";
+    }
+    if (!formData.cols || isNaN(cols) || cols <= 0) {
+      newErrors.cols = "Columns must be a positive number";
     }
 
     setErrors(newErrors);
@@ -97,7 +106,6 @@ const RoomFormModal: React.FC<RoomFormModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!validate()) return;
 
     const roomData: Omit<Room, "room_id"> = {
@@ -112,6 +120,8 @@ const RoomFormModal: React.FC<RoomFormModalProps> = ({
   };
 
   if (!isOpen) return null;
+
+  const currentType = formData.room_type as RoomTypeOption;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -129,6 +139,39 @@ const RoomFormModal: React.FC<RoomFormModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+
+          {/* Room Type Selector — only show in create mode */}
+          {mode === "create" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Room Type <span className="text-red-500">*</span>
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                {(["Standard", "Hall"] as RoomTypeOption[]).map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => handleRoomTypeSelect(type)}
+                    className={`p-4 rounded-lg border-2 text-left transition-all ${
+                      currentType === type
+                        ? "border-blue-500 bg-blue-50"
+                        : "border-gray-200 hover:border-gray-300 bg-white"
+                    }`}
+                  >
+                    <div className={`font-semibold text-sm ${currentType === type ? "text-blue-700" : "text-gray-800"}`}>
+                      {type}
+                    </div>
+                    <div className={`text-xs mt-0.5 ${currentType === type ? "text-blue-500" : "text-gray-500"}`}>
+                      {type === "Standard"
+                        ? "36 seats · 6 × 6"
+                        : "82 seats · Hall layout"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Room Number */}
           <div>
             <label
@@ -143,7 +186,7 @@ const RoomFormModal: React.FC<RoomFormModalProps> = ({
               name="room_number"
               value={formData.room_number}
               onChange={handleChange}
-              placeholder="e.g., A101, B205"
+              placeholder="e.g., A101, Hall A"
               className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                 errors.room_number ? "border-red-500" : "border-gray-300"
               }`}
@@ -178,25 +221,6 @@ const RoomFormModal: React.FC<RoomFormModalProps> = ({
             )}
           </div>
 
-          {/* Room Type */}
-          <div>
-            <label
-              htmlFor="room_type"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
-              Room Type
-            </label>
-            <input
-              type="text"
-              id="room_type"
-              name="room_type"
-              value={formData.room_type}
-              onChange={handleChange}
-              placeholder="e.g., Lecture Hall, Lab, Classroom"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
           {/* Rows and Columns */}
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -222,7 +246,6 @@ const RoomFormModal: React.FC<RoomFormModalProps> = ({
                 <p className="text-red-500 text-sm mt-1">{errors.rows}</p>
               )}
             </div>
-
             <div>
               <label
                 htmlFor="cols"

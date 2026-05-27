@@ -3,8 +3,11 @@ import DashboardLayout from "@/components/layouts/DashboardLayout";
 import PageHeader from "@/components/shared/PageHeader";
 import DataTable from "@/components/shared/DataTable";
 import { Button } from "@/components/ui/button";
-import { Download, Eye, Loader2, Filter, X } from "lucide-react";
+import { Download, Eye, Loader2, Filter, X, FileDown } from "lucide-react";
 import { teacherQueries, Teacher } from "@/services/teacherQueries";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
+
 
 // Extended Teacher type with id field for DataTable
 type TeacherWithId = Teacher & { id: number };
@@ -17,6 +20,7 @@ const TeacherView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [showFilters, setShowFilters] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // Fetch all teachers from Supabase
   useEffect(() => {
@@ -24,7 +28,6 @@ const TeacherView: React.FC = () => {
       setLoading(true);
       try {
         const data = await teacherQueries.getAll();
-        // Map teacher_id to id for DataTable compatibility
         const teachersWithId: TeacherWithId[] = data.map((teacher) => ({
           ...teacher,
           id: teacher.teacher_id,
@@ -67,7 +70,6 @@ const TeacherView: React.FC = () => {
   // Filter teachers locally for search
   const filteredTeachers = filteredByCategory.filter((teacher) => {
     const q = searchQuery.toLowerCase();
-
     return (
       (teacher.name && teacher.name.toLowerCase().includes(q)) ||
       (teacher.department && teacher.department.toLowerCase().includes(q)) ||
@@ -126,7 +128,20 @@ const TeacherView: React.FC = () => {
     high: teachers.filter((t) => (t.total_periods_assigned || 0) >= 18).length,
   };
 
-  // Export to CSV
+  // ── Helper: workload label & color ──────────────────────────────────────────
+  const getWorkloadLabel = (periods: number): string => {
+    if (periods >= 18) return "High";
+    if (periods >= 12) return "Medium";
+    return "Light";
+  };
+
+  const getWorkloadRGB = (periods: number): [number, number, number] => {
+    if (periods >= 18) return [220, 38, 38];   // red
+    if (periods >= 12) return [217, 119, 6];   // amber
+    return [22, 163, 74];                       // green
+  };
+
+  // ── Export to CSV ────────────────────────────────────────────────────────────
   const handleExport = () => {
     const headers = [
       "No.",
@@ -160,24 +175,139 @@ const TeacherView: React.FC = () => {
     window.URL.revokeObjectURL(url);
   };
 
+  // ── Export to PDF ────────────────────────────────────────────────────────────
+  const handleExportPDF = async () => {
+  if (filteredTeachers.length === 0) return;
+  setExporting(true); // add: const [exporting, setExporting] = useState(false);
+
+  try {
+    const container = document.createElement("div");
+    container.style.cssText = `
+      position: fixed;
+      top: -9999px;
+      left: -9999px;
+      width: 794px;
+      background: white;
+      font-family: 'Pyidaungsu', 'Noto Sans Myanmar', 'Myanmar Text', sans-serif;
+      padding: 32px;
+      box-sizing: border-box;
+    `;
+
+    const today = new Date().toLocaleDateString("en-GB", {
+      day: "2-digit", month: "long", year: "numeric",
+    });
+
+    const filterLabel =
+      activeFilter === "all"
+        ? "All Teachers"
+        : filterButtons.find((f) => f.value === activeFilter)?.label ?? activeFilter;
+
+    const rows = filteredTeachers
+      .map((t, idx) => {
+        const periods = t.total_periods_assigned ?? 0;
+        const level = periods >= 18 ? "high" : periods >= 12 ? "medium" : "light";
+        const badgeBg    = level === "high" ? "#fee2e2" : level === "medium" ? "#fef3c7" : "#d1fae5";
+        const badgeColor = level === "high" ? "#991b1b" : level === "medium" ? "#92400e" : "#065f46";
+        const rowBg = idx % 2 === 0 ? "#ffffff" : "#f8fafc";
+
+        return `
+          <tr style="background:${rowBg};">
+            <td style="padding:9px 12px;text-align:center;font-size:12px;color:#6b7280;border-bottom:1px solid #e2e8f0;">${idx + 1}</td>
+            <td style="padding:9px 12px;font-size:13px;font-weight:600;color:#111827;border-bottom:1px solid #e2e8f0;font-family:'Pyidaungsu','Noto Sans Myanmar','Myanmar Text',sans-serif;">${t.name || "Unknown"}</td>
+            <td style="padding:9px 12px;font-size:12px;color:#374151;border-bottom:1px solid #e2e8f0;">${t.rank || "N/A"}</td>
+            <td style="padding:9px 12px;font-size:12px;color:#374151;border-bottom:1px solid #e2e8f0;">${t.department || "Undeclared"}</td>
+            <td style="padding:9px 12px;text-align:center;border-bottom:1px solid #e2e8f0;">
+              <span style="background:${badgeBg};color:${badgeColor};font-size:11px;font-weight:700;padding:2px 10px;border-radius:9999px;">${periods} periods</span>
+            </td>
+          </tr>`;
+      })
+      .join("");
+
+    container.innerHTML = `
+      <div style="background:#1e3a5f;color:white;padding:14px 20px;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:17px;font-weight:700;">Teacher Workload Report</span>
+        <span style="font-size:11px;opacity:0.8;">Generated: ${today}</span>
+      </div>
+
+      <div style="font-size:11px;color:#6b7280;margin-bottom:16px;padding:8px 14px;background:#f9fafb;border-radius:6px;border:1px solid #e5e7eb;">
+        Filter: <strong>${filterLabel}</strong> &nbsp;|&nbsp; ${filteredTeachers.length} records
+      </div>
+
+      <table style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr style="background:#1e3a5f;">
+            <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:600;color:white;text-transform:uppercase;letter-spacing:0.05em;width:48px;">No.</th>
+            <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:white;text-transform:uppercase;letter-spacing:0.05em;">Teacher Name</th>
+            <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:white;text-transform:uppercase;letter-spacing:0.05em;width:160px;">Rank</th>
+            <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:white;text-transform:uppercase;letter-spacing:0.05em;width:180px;">Department</th>
+            <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:600;color:white;text-transform:uppercase;letter-spacing:0.05em;width:120px;">Periods</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+
+      <div style="text-align:center;font-size:9px;color:#9ca3af;margin-top:20px;padding-top:12px;border-top:1px solid #e5e7eb;">
+        Confidential — For Internal Use Only &nbsp;|&nbsp; ${filteredTeachers.length} records
+      </div>
+    `;
+
+    document.body.appendChild(container);
+
+    await document.fonts.ready;
+    await new Promise((r) => setTimeout(r, 300));
+
+    const canvas = await html2canvas(container, {
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      backgroundColor: "#ffffff",
+      width: 794,
+    });
+
+    document.body.removeChild(container);
+
+    const imgWidth = 210;
+    const pageHeight = 297;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    const pdf = new jsPDF("p", "mm", "a4");
+    let heightLeft = imgHeight;
+    let position = 0;
+
+    pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+
+    pdf.save(`teachers_${activeFilter}_${new Date().toISOString().split("T")[0]}.pdf`);
+  } catch (err) {
+    console.error("PDF export error:", err);
+    alert("Failed to export PDF. Please try again.");
+  } finally {
+    setExporting(false);
+  }
+};
+
+  // ── Filter buttons config ────────────────────────────────────────────────────
   const filterButtons: Array<{
     label: string;
     value: FilterType;
     count: number;
   }> = [
-    { label: "All Teachers", value: "all", count: stats.total },
-    {
-      label: "High Workload",
-      value: "highWorkload",
-      count: stats.highWorkload,
-    },
-    { label: "Computer Science", value: "cs", count: stats.cs },
-    { label: "Computer Technology", value: "ct", count: stats.ct },
-    { label: "Information Systems", value: "is", count: stats.is },
-    { label: "Software Engineering", value: "se", count: stats.se },
-    { label: "Artificial Intelligence", value: "ai", count: stats.ai },
+    { label: "All Teachers",        value: "all",          count: stats.total },
+    { label: "High Workload",       value: "highWorkload", count: stats.highWorkload },
+    { label: "Computer Science",    value: "cs",           count: stats.cs },
+    { label: "Computer Technology", value: "ct",           count: stats.ct },
+    { label: "Information Systems", value: "is",           count: stats.is },
+    { label: "Software Engineering",value: "se",           count: stats.se },
+    { label: "Artificial Intelligence", value: "ai",       count: stats.ai },
   ];
 
+  // ── Table columns ────────────────────────────────────────────────────────────
   const columns = [
     {
       key: "no",
@@ -261,6 +391,7 @@ const TeacherView: React.FC = () => {
     },
   ];
 
+  // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <DashboardLayout>
       <PageHeader
@@ -280,14 +411,28 @@ const TeacherView: React.FC = () => {
                 </span>
               )}
             </Button>
+
+            {/* CSV Export */}
             <Button
               variant="outline"
               onClick={handleExport}
               disabled={filteredTeachers.length === 0}
             >
               <Download className="h-4 w-4 mr-2" />
-              Export
+              Export CSV
             </Button>
+
+            {/* PDF Export */}
+           <Button
+  variant="outline"
+  onClick={handleExportPDF}
+  disabled={filteredTeachers.length === 0 || exporting}
+>
+  {exporting
+    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Exporting…</>
+    : <><FileDown className="h-4 w-4 mr-2" />Export PDF</>
+  }
+</Button>
           </div>
         }
       />
@@ -395,6 +540,7 @@ const TeacherView: React.FC = () => {
         </div>
       ) : (
         <>
+          {/* Teachers by Department */}
           <div className="mb-6">
             <div className="mb-4">
               <h3 className="text-lg font-semibold text-foreground">
@@ -443,7 +589,7 @@ const TeacherView: React.FC = () => {
             )}
           </div>
 
-          {/* Rank Distribution */}
+          {/* Teachers by Rank */}
           <div className="mb-6">
             <div className="mb-4">
               <h3 className="text-lg font-semibold text-foreground">

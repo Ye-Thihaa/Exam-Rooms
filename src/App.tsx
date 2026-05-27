@@ -10,6 +10,7 @@ import { SpeedInsights } from "@vercel/speed-insights/react";
 
 // Pages
 import LoginPage from "./pages/LoginPage";
+import Landing from "./pages";
 
 // Exam Officer Pages
 import ExamOfficerDashboard from "./pages/exam-officer/ExamOfficerDashboard";
@@ -34,15 +35,15 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-// True in `vite dev`, false in `vite build` (production)
 const isDev = import.meta.env.DEV;
 
-// Root redirect component - redirects based on auth state
 const RootRedirect = () => {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) return null;
 
   if (!isAuthenticated || !user) {
-    return <Navigate to="/login" replace />;
+    return <Landing />;
   }
 
   switch (user.role) {
@@ -71,15 +72,19 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-
-        <BrowserRouter>
+        <BrowserRouter
+          future={{
+            v7_startTransition: true,
+            v7_relativeSplatPath: true,
+          }}
+        >
           <Analytics />
           <SpeedInsights />
           <Routes>
             <Route path="/" element={<RootRedirect />} />
             <Route path="/login" element={<LoginPage />} />
 
-            {/* ── Exam Officer Routes (always available) ── */}
+            {/* ── Exam Officer Routes ── */}
             <Route
               path="/exam-officer"
               element={

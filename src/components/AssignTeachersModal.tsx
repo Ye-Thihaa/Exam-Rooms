@@ -333,12 +333,14 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
         await teacherAssignmentQueries.deleteByRoomAndRole(
           activeExamRoomId,
           "Supervisor",
+          examDate,
         );
       }
       if (selectedAssistantId) {
         await teacherAssignmentQueries.deleteByRoomAndRole(
           activeExamRoomId,
           "Assistant",
+          examDate,
         );
       }
 
@@ -391,6 +393,7 @@ const AssignTeachersModal: React.FC<AssignTeachersModalProps> = ({
       await teacherAssignmentQueries.deleteByRoomAndRole(
         activeExamRoomId,
         role,
+          examDate, 
       );
       setSuccessMessage(`${role} removed successfully!`);
       await loadData();
